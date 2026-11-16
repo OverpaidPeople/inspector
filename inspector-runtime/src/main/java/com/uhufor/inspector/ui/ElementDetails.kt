@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -55,11 +56,11 @@ import com.uhufor.inspector.engine.UiNodeProperties
 import com.uhufor.inspector.engine.UiNodeStyleProperties
 import com.uhufor.inspector.engine.UiNodeType
 import com.uhufor.inspector.ui.components.EditFieldRow
+import com.uhufor.inspector.ui.components.CollapsibleSection
 import com.uhufor.inspector.ui.components.InfoRow
 import com.uhufor.inspector.ui.components.MarginPaddingBox
 import com.uhufor.inspector.ui.components.MeasurementMetricBox
 import com.uhufor.inspector.ui.components.Row1EditField
-import com.uhufor.inspector.ui.components.SectionHeader
 import com.uhufor.inspector.ui.components.SectionTitle
 import com.uhufor.inspector.ui.components.SmallButton
 import com.uhufor.inspector.ui.components.SmallTextField
@@ -78,13 +79,14 @@ internal fun ElementDetails(
     onRequestFocusable: (Boolean) -> Unit,
     onApplyMarginPadding: (Int, Int, Int, Int, Int, Int, Int, Int) -> Unit,
     onApplyText: (text: String, size: Float?, color: Int?) -> Unit,
+    modifier: Modifier = Modifier,
     textGuideOptions: TextGuideOptions = TextGuideOptions(),
     onTextGuideOptionsChange: (TextGuideOptions) -> Unit = {},
+    contentPadding: PaddingValues = PaddingValues(4.dvdp),
+    sectionExpansion: DetailsSectionExpansion = remember { DetailsSectionExpansion() },
 ) {
     Card(
-        modifier = Modifier
-            .width(148.dvdp)
-            .height(180.dvdp),
+        modifier = modifier.width(148.dvdp).height(180.dvdp),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         shape = RoundedCornerShape(4.dp)
     ) {
@@ -109,7 +111,7 @@ internal fun ElementDetails(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(4.dvdp)
+                .padding(contentPadding)
                 .verticalScroll(state = rememberScrollState())
         ) {
             when (editMode) {
@@ -121,6 +123,7 @@ internal fun ElementDetails(
                         onEditText = { onEnterEditMode(EditMode.Text) },
                         textGuideOptions = textGuideOptions,
                         onTextGuideOptionsChange = onTextGuideOptionsChange,
+                        sectionExpansion = sectionExpansion,
                     )
                 }
 
@@ -159,9 +162,12 @@ private fun ElementInfoContent(
     onEditText: () -> Unit,
     textGuideOptions: TextGuideOptions,
     onTextGuideOptionsChange: (TextGuideOptions) -> Unit,
+    sectionExpansion: DetailsSectionExpansion,
 ) {
-    SectionHeader(
+    CollapsibleSection(
+        section = DetailsSection.DETAILS,
         title = stringResource(R.string.inspector_title_details),
+        expansion = sectionExpansion,
         rightContent = {
             if (selectionState.properties.type == UiNodeType.COMPOSE) {
                 Image(
@@ -172,25 +178,28 @@ private fun ElementInfoContent(
                 )
             }
         }
-    )
-    InfoRow(
-        stringResource(R.string.inspector_label_id),
-        selectionState.properties.id
-    )
+    ) {
+        InfoRow(
+            stringResource(R.string.inspector_label_id),
+            selectionState.properties.id
+        )
+    }
 
-    Measurement(selectionState, unitMode)
+    Measurement(selectionState, unitMode, sectionExpansion)
     MarginPadding(
         selectionState,
         unitMode,
-        onEditRequest = onEditMarginPadding
+        onEditRequest = onEditMarginPadding,
+        sectionExpansion = sectionExpansion,
     )
     TextContent(
         selectionState = selectionState,
-        onEditRequest = onEditText
+        onEditRequest = onEditText,
+        sectionExpansion = sectionExpansion,
     )
-    Actions(selectionState)
-    AppearanceDetails(selectionState, unitMode)
-    AlignmentDetails(selectionState, unitMode, textGuideOptions, onTextGuideOptionsChange)
+    Actions(selectionState, sectionExpansion)
+    AppearanceDetails(selectionState, unitMode, sectionExpansion)
+    AlignmentDetails(selectionState, unitMode, textGuideOptions, sectionExpansion, onTextGuideOptionsChange)
 }
 
 @Composable
@@ -259,6 +268,7 @@ private fun TextEditor(
 private fun Measurement(
     selectionState: SelectionState,
     unitMode: UnitMode,
+    sectionExpansion: DetailsSectionExpansion,
 ) {
     val density = LocalDensity.current.density
     val size = remember(selectionState.properties.size, unitMode, density) {
@@ -270,8 +280,7 @@ private fun Measurement(
     }
 
     Spacer(modifier = Modifier.height(8.dvdp))
-    Column(modifier = Modifier.fillMaxWidth()) {
-        SectionTitle(stringResource(R.string.inspector_title_distance))
+    CollapsibleSection(DetailsSection.DISTANCE, stringResource(R.string.inspector_title_distance), sectionExpansion) {
         Spacer(modifier = Modifier.height(2.dvdp))
 
         MeasurementMetricBox(
@@ -347,19 +356,10 @@ private fun MarginPadding(
     selectionState: SelectionState,
     unitMode: UnitMode,
     onEditRequest: () -> Unit,
+    sectionExpansion: DetailsSectionExpansion,
 ) {
     val density = LocalDensity.current.density
     val isView = selectionState.properties.type == UiNodeType.VIEW
-
-    if (!isView) {
-        Spacer(modifier = Modifier.height(8.dvdp))
-        SectionTitle(stringResource(R.string.inspector_title_margin_padding))
-        InfoRow(stringResource(R.string.inspector_column_margin),
-            stringResource(R.string.inspector_value_unavailable))
-        InfoRow(stringResource(R.string.inspector_column_padding),
-            stringResource(R.string.inspector_value_unavailable))
-        return
-    }
 
     val margin = remember(selectionState.properties.margin, unitMode, density) {
         selectionState.properties.margin.formatAsList(unitMode, density)
@@ -370,50 +370,32 @@ private fun MarginPadding(
     }
 
     Spacer(modifier = Modifier.height(8.dvdp))
-    Column(modifier = Modifier.fillMaxWidth()) {
-        SectionHeader(
-            title = stringResource(R.string.inspector_title_margin_padding),
-            rightContent = {
-                if (selectionState.properties.type == UiNodeType.VIEW) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .background(
-                                color = colorResource(R.color.inspector_button_bg),
-                                shape = RoundedCornerShape(4.dp)
-                            )
-                            .clickable(enabled = isView, onClick = onEditRequest)
-                            .padding(horizontal = 10.dvdp, vertical = 2.dvdp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.inspector_action_edit),
-                            fontSize = 8.dvsp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        )
+    CollapsibleSection(
+        DetailsSection.MARGIN_PADDING,
+        stringResource(R.string.inspector_title_margin_padding),
+        sectionExpansion,
+        rightContent = { if (isView) SectionEditButton(onEditRequest) },
+    ) {
         Spacer(modifier = Modifier.height(2.dvdp))
-
-        MarginPaddingBox(
-            margin = margin,
-            padding = padding,
-            modifier = Modifier.fillMaxWidth()
-        )
+        if (isView) {
+            MarginPaddingBox(margin = margin, padding = padding, modifier = Modifier.fillMaxWidth())
+        } else {
+            InfoRow(stringResource(R.string.inspector_column_margin),
+                stringResource(R.string.inspector_value_unavailable))
+            InfoRow(stringResource(R.string.inspector_column_padding),
+                stringResource(R.string.inspector_value_unavailable))
+        }
     }
 }
 
 @Composable
-private fun Actions(selectionState: SelectionState) {
+private fun Actions(selectionState: SelectionState, sectionExpansion: DetailsSectionExpansion) {
     if (selectionState.properties.actions.isNotEmpty()) {
         Spacer(modifier = Modifier.height(8.dvdp))
-        SectionTitle(stringResource(R.string.inspector_title_actions))
-        selectionState.properties.actions.forEach { action ->
-            InfoRow(
-                action.value,
-                stringResource(R.string.inspector_value_true)
-            )
+        CollapsibleSection(DetailsSection.ACTIONS, stringResource(R.string.inspector_title_actions), sectionExpansion) {
+            selectionState.properties.actions.forEach { action ->
+                InfoRow(action.value, stringResource(R.string.inspector_value_true))
+            }
         }
     }
 }
@@ -422,6 +404,7 @@ private fun Actions(selectionState: SelectionState) {
 private fun TextContent(
     selectionState: SelectionState,
     onEditRequest: () -> Unit,
+    sectionExpansion: DetailsSectionExpansion,
 ) {
     val style = selectionState.properties.styles
         .filterIsInstance<UiNodeStyleProperties.TextStyle>()
@@ -430,30 +413,12 @@ private fun TextContent(
     val isEditable = selectionState.properties.type == UiNodeType.VIEW
 
     Spacer(modifier = Modifier.height(8.dvdp))
-    Column(modifier = Modifier.fillMaxWidth()) {
-        SectionHeader(
-            title = stringResource(R.string.inspector_style_text),
-            rightContent = {
-                if (isEditable) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .background(
-                                color = colorResource(R.color.inspector_button_bg),
-                                shape = RoundedCornerShape(4.dp)
-                            )
-                            .clickable(onClick = onEditRequest)
-                            .padding(horizontal = 10.dvdp, vertical = 2.dvdp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.inspector_action_edit),
-                            fontSize = 8.dvsp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        )
+    CollapsibleSection(
+        DetailsSection.TEXT,
+        stringResource(R.string.inspector_style_text),
+        sectionExpansion,
+        rightContent = { if (isEditable) SectionEditButton(onEditRequest) },
+    ) {
         Spacer(modifier = Modifier.height(2.dvdp))
         InfoRow(
             stringResource(R.string.inspector_style_text),
@@ -497,6 +462,18 @@ private fun TextContent(
             },
         )
         ExtendedTextProperties(style)
+    }
+}
+
+@Composable
+private fun SectionEditButton(onEditRequest: () -> Unit) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.background(colorResource(R.color.inspector_button_bg), RoundedCornerShape(4.dp))
+            .clickable(onClick = onEditRequest)
+            .padding(horizontal = 10.dvdp, vertical = 2.dvdp),
+    ) {
+        Text(stringResource(R.string.inspector_action_edit), fontSize = 8.dvsp, fontWeight = FontWeight.Bold)
     }
 }
 

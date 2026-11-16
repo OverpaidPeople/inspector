@@ -227,6 +227,16 @@ Inspector.enableDetailsView()
 
 runtime의 `install()`은 Compose의 전역 `isDebugInspectorInfoEnabled`를 켭니다. 이는 이후 생성되는 Modifier의 검사 메타데이터를 보존하며 검사 종료 시에도 유지됩니다. 개별 컴포넌트 변경 없이 `Modifier.background`의 색상/브러시를 구분하기 위한 설정입니다. 이미 생성된 Modifier에는 소급 적용되지 않으므로, 늦게 설치했다면 화면을 다시 생성해야 배경 정보를 얻을 수 있습니다. 메타데이터 보존 비용은 debug runtime에만 발생하며 release의 `inspector-noop`에는 적용되지 않습니다.
 
+Activity가 이미 표시된 뒤 `Application` 컨텍스트로 설치해도 현재 앱 창에서 Activity를 복구하므로, 첫 번째 플로팅 버튼으로 검사를 켜기 위해 백그라운드에 갔다 올 필요가 없습니다. Activity 컨텍스트로 다시 `install()`해도 추적 대상이 갱신되고, 같은 Application에 생명주기 콜백을 중복 등록하지 않습니다. 배경 메타데이터를 얻으려면 여전히 첫 composition 전 설치를 권장합니다.
+
+### 실행 비용
+
+- 검사 시작·새로고침·검사 오버레이 크기 변경 시 현재 View/Compose 트리를 스캔하고 스타일 스냅샷을 보관합니다. 노드 수와 텍스트/Modifier 복잡도에 따라 실행 시간과 메모리 사용량이 증가합니다. 주기적으로 전체 화면을 재스캔하지는 않습니다.
+- 요소를 탭할 때는 위치로 최종 후보를 고른 다음 해당 Compose 노드의 스타일만 추출합니다. 중간 후보의 텍스트 레이아웃 콜백은 호출하지 않습니다.
+- PROP 값의 자동 흘림 애니메이션을 제거했습니다. 긴 값은 **값 영역을 좌우로 드래그**해서 읽습니다. 사용하지 않는 섹션을 접으면 그 콘텐츠도 composition에서 빠집니다.
+- 검사를 끄면 검사 오버레이와 스캔 스냅샷을 해제합니다. 설치 시 켜 둔 Compose 검사 메타데이터는 유지됩니다. `releaseImplementation(project(":inspector-noop"))` 구성에는 이러한 검사 처리가 없습니다.
+- Debug 빌드와 에뮬레이터에서 얻은 수치는 실제 기기의 배포 빌드 성능과 다릅니다. 이 검증은 기능 회귀 테스트이며 CPU/FPS 개선율을 측정한 벤치마크는 아닙니다.
+
 ### 지원 범위와 확인 불가
 
 - 현재 BOM `2024.08.00`이 해석하는 Compose UI/Foundation **1.6.8**을 기준으로 구현했습니다. 텍스트는 선택한 unmerged Semantics 노드의 `SemanticsActions.GetTextLayoutResult`에서 읽고, 실패/미제공 시 Semantics의 `Text` 또는 `EditableText` 내용만 사용합니다. 실패하는 콜백은 검사를 중단시키지 않습니다. 비밀번호 노드는 원문과 스타일을 조회하지 않습니다.
@@ -245,6 +255,26 @@ releaseImplementation(project(":inspector-noop"))
 ```
 
 테스트: `:inspector-runtime:testDebugUnitTest`, `:inspector-runtime:connectedDebugAndroidTest`. 계측 테스트에는 Android API 28 이상 기기/에뮬레이터가 필요합니다.
+
+### PROP 패널 크기 조절
+
+PROP 패널의 **네 모서리에 있는 사선 표시를 누른 채 드래그**하면 너비와 높이를 조절할 수 있습니다. 드래그하는 모서리의 반대쪽은 고정됩니다. 패널 내부는 기존처럼 스크롤하고, XML/View 편집과 가이드 토글도 그대로 사용할 수 있습니다.
+
+- 손을 떼면 마지막 크기를 앱 내부 설정에 dp로 저장합니다. PROP를 닫았다 열거나 앱 프로세스를 다시 실행해도 복원됩니다. 앱 데이터 삭제 또는 앱 삭제 후 재설치 시 초기화됩니다.
+- 기본 카드 크기는 기존 `148 × 180dp`이며 기존 UI 배율을 반영합니다. 최소 크기는 UI 배율을 반영한 `120 × 120dp`, 최대 크기는 사용 가능한 화면 영역입니다. 사용자가 조절한 크기는 글자 UI 배율과 별도로 저장합니다.
+- 회전이나 작은 화면에서는 화면 안에 맞게 일시적으로 크기를 제한합니다. 자동 제한으로 저장된 선호 크기를 덮어쓰지 않으므로, 넓은 화면으로 돌아오면 복원됩니다.
+- 취소된 드래그는 시작 크기로 돌아가며 저장하지 않습니다. 패널 위치는 기존 플로팅 버튼에 붙는 방식을 유지하고, 크기만 기억합니다.
+- 추가 권한이나 설정은 필요하지 않으며 release의 `inspector-noop` 구성도 유지됩니다.
+- 드래그 중 창 갱신은 화면 프레임마다 최신 크기 한 번으로 합치고, 동일한 위치·크기의 중복 요청은 건너뜁니다. 손을 떼면 대기 중인 마지막 크기를 반영한 뒤 저장합니다.
+
+### PROP 섹션 접기/펼치기
+
+**Details, Distance, Margin / Padding, Text, Actions, Appearance, Alignment** 제목을 누르면 해당 섹션 내용만 접거나 펼칠 수 있습니다. 접어도 제목과 화살표는 남으므로 다시 누르면 복원됩니다. 처음에는 모든 섹션이 펼쳐져 있습니다.
+
+- 섹션들은 서로 독립적입니다. 예를 들어 Details를 접으면 ID 정보만 숨기며 Distance 등 다른 섹션은 유지합니다. 선택 요소에 해당하지 않는 섹션은 기존처럼 표시하지 않습니다.
+- 접힘 상태는 선택 요소·단위·패널 크기를 바꿔도 유지되고, PROP를 다시 열거나 앱을 다시 실행해도 복원됩니다. 크기 설정과 함께 앱 내부에 저장하며, 기존에 저장한 패널 크기는 바꾸지 않습니다.
+- XML/View의 **Edit** 버튼은 제목과 별도로 동작합니다. 접힌 섹션에서는 Edit도 숨기고, 펼치면 다시 사용할 수 있습니다. 편집 후 돌아와도 다른 섹션의 접힘 상태를 유지합니다.
+- 접기는 PROP 안의 정보 표시만 변경합니다. 실제 측정과 이미 켜 둔 베이스라인/텍스트 경계 가이드에는 영향을 주지 않습니다.
 
 ### 앱에서 바로 확인하는 디자인 속성
 
@@ -267,8 +297,9 @@ releaseImplementation(project(":inspector-noop"))
 
 ### 이번 변경의 검증 결과
 
-- 단위 테스트 **22개 통과**: 실제 Compose background/border/layer Modifier, 단색/그라데이션/겹친 배경/alpha, 검사 정보 미제공, 혼합·겹친 span/paragraph, 원본 줄 높이·자간 단위, 콜백 미실행 및 가이드 좌표 매핑.
-- 계측 테스트 **13개 모두 실행 통과** (`:inspector-runtime:connectedDebugAndroidTest`, Pixel 9 Pro / Android 16 에뮬레이터): 실제 Text/TextField 속성, 실패하는 Semantics 액션, 비밀번호, 복수 레이아웃, 확인 불가 표시, 패딩이 있는 텍스트의 가이드 원점, 장식 입력창의 미확인 좌표 처리, LTR/RTL 모서리, 토글 및 실제 가이드 픽셀 렌더링, hit/scan 크기 유지, View 회귀 검증. 같은 면적에서는 더 깊은 자식 노드를 우선해 부모가 텍스트를 가리지 않도록 처리했습니다.
+- 단위 테스트 **35개 통과**: 스타일 추출·가이드 좌표, 네 모서리 리사이즈·화면 제한·dp 크기 복원, 섹션별 독립 접힘 상태, 연속 창 갱신 요청 병합·최종 반영·취소를 검증했습니다.
+- 계측 테스트 **28개 모두 실행 통과** (`:inspector-runtime:connectedDebugAndroidTest`, Pixel 9 Pro / Android 16 에뮬레이터): 기존 스타일·가이드·측정 회귀, 실제 오버레이 창 리사이즈·재생성, 모든 섹션의 제목 유지와 콘텐츠 숨김, 선택/단위 변경 시 접힘 유지, Edit 버튼 분리, 섹션 상태 저장·크기 설정 보존을 검증했습니다. 실제 PROP 창에서 7개 섹션을 총 42번 접고 펼친 뒤에도 창 연결과 크기가 유지됐습니다. 늦은 Application 설치 후 첫 ON, Activity 재등록·정리, 최종 선택 후보만 레이아웃 조회, 긴 값의 자동 이동 방지와 수동 스크롤도 검증했습니다. 오버레이 권한 선언은 계측 테스트 APK에만 추가했습니다.
+- 실제 샘플의 PROP 창을 물리 드래그로 `820 × 1114 → 880 × 1204 → 820 × 1114px`로 늘리고 줄이는 동작을 확인했습니다. 샘플 앱 프로세스를 종료·재실행한 뒤에도 저장된 dp 크기에 맞는 `820 × 1114px` 창이 복원됐습니다.
 - `:app:assembleDebug`, `:app:assembleRelease`, `:inspector-runtime:assembleRelease`, `:inspector-noop:assembleRelease` 통과.
 - `:inspector-runtime:lintDebug` 통과: 오류 0개, 기존 `ic_compose.xml`의 긴 벡터 경로 경고 1개.
 - APK DEX 확인: debug에는 `ComposeStyleExtractor`, `ComposeAppearanceExtractor`, `TextGuideOptions`가 있고 release에는 없습니다. 샘플의 기존 runtime 아이콘 참조 두 곳은 샘플 소유 리소스로 옮겨 no-op release 빌드 오류를 수정했습니다. 최종 debug 앱을 에뮬레이터에 설치했습니다.

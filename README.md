@@ -219,9 +219,33 @@ This implementation targets the resolved Compose UI/Foundation **1.6.8** (BOM `2
 
 Run `:inspector-runtime:testDebugUnitTest` and `:inspector-runtime:connectedDebugAndroidTest` (API 28+ device/emulator required for instrumentation).
 
-Validation for this change: **all 22 unit tests and all 13 instrumentation tests passed** (Pixel 9 Pro / Android 16 emulator). Coverage includes typography units and mixed spans/paragraphs, actual modifier metadata, callbacks never executed, padded text origins, decorated input geometry limitations, RTL corners, guide toggles and pixel rendering, and View regression. Equal-area hits prefer the deeper descendant so a parent cannot hide Text styles. App debug/release, runtime release and no-op release builds passed. Runtime debug lint passed with zero errors and one existing long-vector-path warning. APK DEX inspection confirmed both extractors and guide options are present in debug and absent from release. Two existing sample references to a runtime-only icon were moved to a sample-owned resource so the no-op release can build. The final debug app was installed on the emulator.
+Validation for this change: **all 35 unit tests and all 28 instrumentation tests passed** (Pixel 9 Pro / Android 16 emulator). Coverage includes styles, guide rendering, View regression, overlay resizing/recreation, independent section toggles, selection/unit changes, Edit action separation, preference reloads that preserve panel size, and coalescing/flushing/canceling window updates. A real PROP window retained its attachment and size through 42 section toggles. Regressions also cover the first inspection toggle after late Application installation, Activity registration/cleanup, extracting layouts only for the final hit candidate, and static, manually scrollable long values. Overlay permission for the window regression test is declared only in the instrumentation APK. Physical sample drags verified `820 × 1114 → 880 × 1204 → 820 × 1114px`; a full app process restart restored the same saved size. App debug/release, runtime release and no-op release builds passed. Runtime debug lint passed with zero errors and one existing long-vector-path warning. The final debug app was installed on the emulator.
+
+Installing with an Application context after an Activity has resumed recovers the visible Activity from existing app windows, so the first inspection toggle does not require backgrounding and resuming the app. Repeated installs with an Activity context refresh the tracked Activity without duplicate lifecycle registration. Installing before the first composition is still recommended for background metadata.
+
+### Runtime cost
+
+Inspection startup, refresh and overlay viewport changes scan the current View/Compose tree and retain style snapshots. Cost grows with node count and text/Modifier complexity; there is no periodic full-tree polling. Tapping an element extracts Compose styles only after the final candidate is chosen, without invoking text-layout callbacks on intermediate candidates. Disabling inspection releases the inspection overlays and scan snapshots; the Compose metadata flag remains enabled.
+
+PROP values no longer auto-scroll. **Drag a value horizontally** to read long contents. Collapsing sections removes their contents from composition. Release builds using `inspector-noop` skip inspection processing. Functional regression tests do not establish a CPU/FPS improvement percentage, and debug/emulator timings do not represent release performance on physical devices.
 
 API references: [GetTextLayoutResult](https://developer.android.com/reference/kotlin/androidx/compose/ui/semantics/SemanticsActions), [LayoutInfo.getModifierInfo](https://developer.android.com/reference/kotlin/androidx/compose/ui/layout/LayoutInfo). Background metadata was also checked against the resolved Foundation 1.6.8 source JAR.
+
+### Resize the PROP panel
+
+Hold and drag any of the **four diagonal corner handles** to resize the PROP card. The opposite corner stays fixed. Content scrolling, View editing and guide toggles continue to work inside the card.
+
+Drag updates are coalesced to the latest size once per display frame, and identical window frames are skipped. Releasing flushes the final pending size before saving it.
+
+The size is saved in the host app's private preferences, in dp, when a drag ends. It is restored when the panel reopens or the app process restarts. Clearing app data or uninstalling the app resets it. Default content size remains `148 × 180dp`; minimum content size is `120 × 120dp`, both adjusted for the existing UI scale. A custom size is stored separately from that text/UI scale.
+
+Size and position stay inside the available screen. Rotation temporarily clamps a large preferred size without overwriting it, so it can return on a larger screen. Cancelled drags revert and do not save. Position still follows the existing floating-trigger anchor. No new permissions are required, and release no-op behavior is unchanged.
+
+### Collapse PROP sections
+
+Click the title of **Details, Distance, Margin / Padding, Text, Actions, Appearance or Alignment** to independently hide/show its contents. Titles and disclosure arrows remain available when collapsed. All sections initially start expanded; collapse choices persist across selections, units, panel reopenings and app restarts without changing the saved panel size. Details collapses only its ID group, not the remaining sections. Sections without applicable data remain absent as before.
+
+View **Edit** actions have separate click targets and are hidden while their section is collapsed. Returning from editing preserves other sections' states. Collapsing affects the PROP display only, leaving measurements and enabled on-screen text guides unchanged.
 
 ### Design properties available in the running app
 

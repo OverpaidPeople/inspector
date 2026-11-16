@@ -23,9 +23,10 @@ internal object ComposeHitTester {
         val composeViews = mutableListOf<AbstractComposeView>()
         collectComposeViews(root, composeViews)
 
-        var matched: SelectionState? = null
+        var matched: SemanticsNode? = null
         var smallestArea = INVALID_AREA
         var matchedDepth = -1
+        val hitPosition = Offset(x.toFloat(), y.toFloat())
 
         composeViews
             .mapNotNull { composeView ->
@@ -38,26 +39,13 @@ internal object ComposeHitTester {
                     .forEach { node: SemanticsNode ->
                         val bounds = node.boundsInWindow
                         if (bounds.width > MIN_ELEMENT_SIZE && bounds.height > MIN_ELEMENT_SIZE) {
-                            val hitPosition = Offset(x.toFloat(), y.toFloat())
                             if (bounds.contains(hitPosition)) {
                                 val area = (bounds.width * bounds.height).toInt()
                                 val depth = node.getDepth()
                                 // A Compose root and its Text can have identical bounds.
                                 // Prefer the descendant so the root cannot hide its text styles.
                                 if (area < smallestArea || (area == smallestArea && depth > matchedDepth)) {
-                                    matched = SelectionState(
-                                        id = node.getNestedBoundsHash(),
-                                        bounds = RectF(
-                                            bounds.left,
-                                            bounds.top,
-                                            bounds.right,
-                                            bounds.bottom
-                                        ),
-                                        parentBounds = node.parent?.boundsInWindow?.run {
-                                            RectF(left, top, right, bottom)
-                                        },
-                                        properties = node.getUiNodeProperties(root.resources)
-                                    )
+                                    matched = node
                                     smallestArea = area
                                     matchedDepth = depth
                                 }
@@ -66,7 +54,17 @@ internal object ComposeHitTester {
                     }
             }
 
-        return matched
+        // Candidate traversal needs geometry only. Layout/style extraction may invoke
+        // application semantics actions, so do it once after choosing the final node.
+        return matched?.let { node ->
+            val bounds = node.boundsInWindow
+            SelectionState(
+                id = node.getNestedBoundsHash(),
+                bounds = RectF(bounds.left, bounds.top, bounds.right, bounds.bottom),
+                parentBounds = node.parent?.boundsInWindow?.run { RectF(left, top, right, bottom) },
+                properties = node.getUiNodeProperties(root.resources),
+            )
+        }
     }
 
     @SuppressLint("UseKtx")

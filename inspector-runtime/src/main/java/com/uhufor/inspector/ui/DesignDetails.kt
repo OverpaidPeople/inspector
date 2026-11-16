@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -20,7 +21,7 @@ import com.uhufor.inspector.engine.StyleTextUnit
 import com.uhufor.inspector.engine.TextGuideOptions
 import com.uhufor.inspector.engine.UiNodeStyleProperties
 import com.uhufor.inspector.ui.components.InfoRow
-import com.uhufor.inspector.ui.components.SectionTitle
+import com.uhufor.inspector.ui.components.CollapsibleSection
 import com.uhufor.inspector.ui.compose.dvdp
 import com.uhufor.inspector.ui.compose.dvsp
 
@@ -41,7 +42,10 @@ internal fun ExtendedTextProperties(style: UiNodeStyleProperties.TextStyle) {
 }
 
 @Composable
-internal fun AppearanceDetails(selection: SelectionState, unitMode: UnitMode) {
+internal fun AppearanceDetails(
+    selection: SelectionState, unitMode: UnitMode,
+    sectionExpansion: DetailsSectionExpansion = remember { DetailsSectionExpansion() },
+) {
     val style = selection.properties.styles.filterIsInstance<UiNodeStyleProperties.AppearanceStyle>().firstOrNull()
     val background = selection.properties.styles.filterIsInstance<UiNodeStyleProperties.ColorStyle>().firstOrNull()
     if (style == null && background == null) return
@@ -50,26 +54,28 @@ internal fun AppearanceDetails(selection: SelectionState, unitMode: UnitMode) {
     fun dimension(px: Float) = if (unitMode == UnitMode.DP) "${(px / density).toDisplayString()}dp"
         else "${px.toDisplayString()}px"
     Spacer(Modifier.height(8.dvdp))
-    SectionTitle(stringResource(R.string.inspector_title_appearance))
-    if (background != null) {
-        background.backgroundType?.let { InfoRow(stringResource(R.string.inspector_style_bg_type), it) }
-        InfoRow(stringResource(R.string.inspector_style_bg_color), background.backgroundColor?.toHexColor() ?: unknown,
-            previewColor = background.backgroundColor)
+    CollapsibleSection(DetailsSection.APPEARANCE, stringResource(R.string.inspector_title_appearance), sectionExpansion) {
+        if (background != null) {
+            background.backgroundType?.let { InfoRow(stringResource(R.string.inspector_style_bg_type), it) }
+            InfoRow(stringResource(R.string.inspector_style_bg_color), background.backgroundColor?.toHexColor() ?: unknown,
+                previewColor = background.backgroundColor)
+        }
+        if (style != null) {
+            InfoRow(stringResource(R.string.inspector_style_radius), style.cornerRadiiPx?.let { corners ->
+                if (corners.distinct().size == 1) dimension(corners.first())
+                else corners.zip(listOf("TL", "TR", "BR", "BL")).joinToString(", ") { (value, side) -> "$side ${dimension(value)}" }
+            } ?: unknown)
+            InfoRow(stringResource(R.string.inspector_style_border_width), style.borderWidthDp?.let {
+                if (it == 0f) stringResource(R.string.inspector_style_hairline)
+                else "${it.toDisplayString()}dp"
+            } ?: unknown)
+            InfoRow(stringResource(R.string.inspector_style_border_color), style.borderColor?.toHexColor() ?: unknown,
+                previewColor = style.borderColor)
+            InfoRow(stringResource(R.string.inspector_style_layer_alpha), style.layerAlpha?.let {
+                "${(it * 100).toDisplayString()}%"
+            } ?: unknown)
+        }
     }
-    if (style == null) return
-    InfoRow(stringResource(R.string.inspector_style_radius), style.cornerRadiiPx?.let { corners ->
-        if (corners.distinct().size == 1) dimension(corners.first())
-        else corners.zip(listOf("TL", "TR", "BR", "BL")).joinToString(", ") { (value, side) -> "$side ${dimension(value)}" }
-    } ?: unknown)
-    InfoRow(stringResource(R.string.inspector_style_border_width), style.borderWidthDp?.let {
-        if (it == 0f) stringResource(R.string.inspector_style_hairline)
-        else "${it.toDisplayString()}dp"
-    } ?: unknown)
-    InfoRow(stringResource(R.string.inspector_style_border_color), style.borderColor?.toHexColor() ?: unknown,
-        previewColor = style.borderColor)
-    InfoRow(stringResource(R.string.inspector_style_layer_alpha), style.layerAlpha?.let {
-        "${(it * 100).toDisplayString()}%"
-    } ?: unknown)
 }
 
 private fun Int.toHexColor(): String = "#${Integer.toHexString(this).uppercase().padStart(8, '0')}"
@@ -77,7 +83,9 @@ private fun Int.toHexColor(): String = "#${Integer.toHexString(this).uppercase()
 @Composable
 internal fun AlignmentDetails(
     selection: SelectionState, unitMode: UnitMode,
-    options: TextGuideOptions, onChange: (TextGuideOptions) -> Unit,
+    options: TextGuideOptions,
+    sectionExpansion: DetailsSectionExpansion = remember { DetailsSectionExpansion() },
+    onChange: (TextGuideOptions) -> Unit,
 ) {
     val style = selection.properties.styles.filterIsInstance<UiNodeStyleProperties.TextStyle>()
         .firstOrNull() ?: return
@@ -87,19 +95,20 @@ internal fun AlignmentDetails(
     fun dimension(px: Float) = if (unitMode == UnitMode.DP) "${(px / density).toDisplayString()}dp"
         else "${px.toDisplayString()}px"
     Spacer(Modifier.height(8.dvdp))
-    SectionTitle(stringResource(R.string.inspector_title_alignment))
-    InfoRow(stringResource(R.string.inspector_style_text_bounds), layout?.let {
-        "${dimension(it.widthPx)} × ${dimension(it.heightPx)}"
-    } ?: unknown)
-    InfoRow(stringResource(R.string.inspector_style_lines), layout?.lineCount?.toString() ?: unknown)
-    InfoRow(stringResource(R.string.inspector_style_first_baseline), layout?.let { dimension(it.firstBaselinePx) } ?: unknown)
-    InfoRow(stringResource(R.string.inspector_style_last_baseline), layout?.let { dimension(it.lastBaselinePx) } ?: unknown)
-    Text(stringResource(R.string.inspector_baseline_origin), fontSize = 8.dvsp)
-    GuideToggle(stringResource(R.string.inspector_baseline_guide), options.baselines, layout != null) {
-        onChange(options.copy(baselines = it))
-    }
-    GuideToggle(stringResource(R.string.inspector_bounds_guide), options.bounds, layout != null) {
-        onChange(options.copy(bounds = it))
+    CollapsibleSection(DetailsSection.ALIGNMENT, stringResource(R.string.inspector_title_alignment), sectionExpansion) {
+        InfoRow(stringResource(R.string.inspector_style_text_bounds), layout?.let {
+            "${dimension(it.widthPx)} × ${dimension(it.heightPx)}"
+        } ?: unknown)
+        InfoRow(stringResource(R.string.inspector_style_lines), layout?.lineCount?.toString() ?: unknown)
+        InfoRow(stringResource(R.string.inspector_style_first_baseline), layout?.let { dimension(it.firstBaselinePx) } ?: unknown)
+        InfoRow(stringResource(R.string.inspector_style_last_baseline), layout?.let { dimension(it.lastBaselinePx) } ?: unknown)
+        Text(stringResource(R.string.inspector_baseline_origin), fontSize = 8.dvsp)
+        GuideToggle(stringResource(R.string.inspector_baseline_guide), options.baselines, layout != null) {
+            onChange(options.copy(baselines = it))
+        }
+        GuideToggle(stringResource(R.string.inspector_bounds_guide), options.bounds, layout != null) {
+            onChange(options.copy(bounds = it))
+        }
     }
 }
 

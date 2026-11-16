@@ -6,7 +6,10 @@ import android.graphics.Rect
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.WindowManager
+import androidx.annotation.VisibleForTesting
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -14,6 +17,8 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.core.content.getSystemService
 import androidx.core.util.component1
 import androidx.core.util.component2
@@ -46,11 +51,25 @@ internal class FloatingDetailsView(
         WeakReference(context.getSystemService())
 
     private var composeView: ComposeView? = null
+    @get:VisibleForTesting
+    internal var panelView: ResizableDetailsLayout? = null
+        private set
     private var layoutParams: WindowManager.LayoutParams? = null
     private var isInstalled = false
     private val gapPx: Int = GAP_STICKY.dp().roundToInt()
     private val paddingHorizontalPx: Int = PADDING_HORIZONTAL.dp().roundToInt()
     private val paddingBottomPx: Int = PADDING_BOTTOM.dp().roundToInt()
+    private val sizeStore = DetailsPanelSizeStore(context)
+    private val sectionStore = DetailsSectionStore(context)
+    private val sectionExpansion = DetailsSectionExpansion(sectionStore.load(), sectionStore::save)
+    private var preferredSize = sizeStore.load()
+    private var lastAnchorRect: Rect? = null
+    private data class ResizeSession(
+        val corner: ResizeCorner, val frame: PanelFrame, val rawX: Float, val rawY: Float,
+        val geometry: DetailsPanelGeometry,
+    )
+    private var resizeSession: ResizeSession? = null
+    private var resizeFrames: PanelFrameDispatcher? = null
 
     private val savedStateRegistryController = SavedStateRegistryController.create(this)
     override val savedStateRegistry: SavedStateRegistry
@@ -86,9 +105,11 @@ internal class FloatingDetailsView(
 
         selectionStateState = selectionState
         unitModeState = unitMode
+        val scaleChanged = uiScaleState != uiScale
         uiScaleState = uiScale
 
         if (isInstalled) {
+            if (scaleChanged) refreshPanelSize()
             return
         }
 
@@ -122,6 +143,9 @@ internal class FloatingDetailsView(
 
                 CompositionLocalProvider(LocalDetailsViewUiScale provides uiScale) {
                     ElementDetails(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 24.dp, bottom = 24.dp),
+                        sectionExpansion = sectionExpansion,
                         selectionState = selectionState,
                         unitMode = unitMode,
                         isEditMode = editMode,
@@ -149,31 +173,63 @@ internal class FloatingDetailsView(
                     )
                 }
             }
-            isVisible = false
+        }
+
+        panelView = ResizableDetailsLayout(currentContext, composeView!!).apply {
+            // Window recomposition looks up owners on the window root, not just ComposeView.
+            setViewTreeLifecycleOwner(this@FloatingDetailsView)
+            setViewTreeSavedStateRegistryOwner(this@FloatingDetailsView)
             setPadding(
                 paddingHorizontalPx,
                 0,
                 paddingHorizontalPx,
                 paddingBottomPx,
             )
+            isVisible = false
+            onResizeStart = { corner, x, y ->
+                val frame = currentFrame()
+                val geometry = geometry()
+                if (frame != null && geometry != null) resizeSession = ResizeSession(corner, frame, x, y, geometry)
+            }
+            onResizeMove = { x, y ->
+                resizeSession?.let { session ->
+                    // Use the gesture's captured viewport instead of querying WindowManager on every MOVE.
+                    resizeFrames?.request(session.geometry.resize(session.frame, session.corner,
+                        x - session.rawX, y - session.rawY))
+                }
+            }
+            onResizeEnd = { finishResize() }
+            onResizeCancel = { cancelResize() }
+            onViewportChanged = { if (isInstalled) refreshPanelSize() }
         }
+        val root = panelView!!
+        resizeFrames = PanelFrameDispatcher(
+            postFrame = { root.postOnAnimation(it) },
+            removeFrame = { root.removeCallbacks(it) },
+            applyFrame = ::applyFrame,
+        )
 
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
 
+        val size = geometry()!!.initialSize(preferredSize)
         layoutParams = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            size.first,
+            size.second,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            computeWindowFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, isEditMode = false),
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.START
+            // Window coordinates and physical resize corners are independent of text direction.
+            @Suppress("RtlHardcoded")
+            gravity = Gravity.TOP or Gravity.LEFT
             x = 0
             y = 0
+            // Avoid an immediate relayout during the first EGL surface creation.
+            configureSoftInput(this, isEditMode = false)
         }
 
         runCatching {
-            currentWindowManager.addView(composeView, layoutParams)
+            currentWindowManager.addView(panelView, layoutParams)
             isInstalled = true
         }.onFailure {
             isInstalled = false
@@ -181,13 +237,15 @@ internal class FloatingDetailsView(
     }
 
     fun updateSticky(anchorRect: Rect) {
+        lastAnchorRect = Rect(anchorRect)
         if (!isInstalled) return
-        val view = composeView ?: return
+        if (resizeSession != null) return
+        val view = panelView ?: return
         val lp = layoutParams ?: return
         val wm = windowManager.get() ?: return
 
-        val w = view.width
-        val h = view.height
+        val w = lp.width.takeIf { it > 0 } ?: view.width
+        val h = lp.height.takeIf { it > 0 } ?: view.height
         if (w == 0 || h == 0) {
             view.post { updateSticky(anchorRect) }
             return
@@ -205,15 +263,12 @@ internal class FloatingDetailsView(
         val targetX = if (isLeft) right + gapPx else left - gapPx - w
         val targetY = if (isTop) top else bottom - h
 
-        val clampedX = targetX.coerceIn(0, sw - w)
-        val clampedY = targetY.coerceIn(0, sh - h)
+        val clampedX = targetX.coerceIn(0, (sw - w).coerceAtLeast(0))
+        val clampedY = targetY.coerceIn(0, (sh - h).coerceAtLeast(0))
 
-        lp.gravity = Gravity.TOP or Gravity.START
-        if (lp.x != clampedX || lp.y != clampedY) {
-            lp.x = clampedX
-            lp.y = clampedY
-            runCatching { wm.updateViewLayout(view, lp) }
-        }
+        @Suppress("RtlHardcoded")
+        lp.gravity = Gravity.TOP or Gravity.LEFT
+        applyFrame(PanelFrame(clampedX, clampedY, w, h))
 
         if (!view.isVisible) {
             view.isVisible = true
@@ -222,16 +277,20 @@ internal class FloatingDetailsView(
 
     fun uninstall() {
         if (!isInstalled) return
+        cancelResize()
+        resizeFrames?.cancel()
+        resizeFrames = null
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         composeView?.let {
             it.setOnKeyListener(null)
             it.disposeComposition()
-            runCatching { windowManager.get()?.removeView(it) }
         }
+        panelView?.let { runCatching { windowManager.get()?.removeView(it) } }
         editModeFlow.value = false
         cancelEdit = null
         backKeyListener = null
         composeView = null
+        panelView = null
         layoutParams = null
         isInstalled = false
     }
@@ -248,6 +307,7 @@ internal class FloatingDetailsView(
         if (!isInstalled) return
 
         val view = composeView ?: return
+        val window = panelView ?: return
         val currentLayoutParams = layoutParams ?: return
         val currentWindowManager = windowManager.get() ?: return
 
@@ -263,12 +323,70 @@ internal class FloatingDetailsView(
         val flagsChanged = newFlags != prevFlags
         if (flagsChanged) currentLayoutParams.flags = newFlags
         if (softChanged || flagsChanged) {
-            runCatching { currentWindowManager.updateViewLayout(view, currentLayoutParams) }
+            runCatching { currentWindowManager.updateViewLayout(window, currentLayoutParams) }
         }
 
         if (isEditMode) {
             view.requestFocus()
         }
+    }
+
+    private fun geometry(): DetailsPanelGeometry? {
+        val wm = windowManager.get() ?: return null
+        val context = context.get() ?: return null
+        val screen = wm.getScreenSize()
+        return DetailsPanelGeometry(screen.width, screen.height, context.resources.displayMetrics.density,
+            uiScaleState, paddingHorizontalPx * 2, paddingBottomPx)
+    }
+
+    private fun currentFrame(): PanelFrame? = layoutParams?.let { PanelFrame(it.x, it.y, it.width, it.height) }
+
+    private fun applyFrame(frame: PanelFrame) {
+        if (!isInstalled) return
+        val view = panelView ?: return
+        val lp = layoutParams ?: return
+        val previous = currentFrame() ?: return
+        if (frame == previous) return
+        val wm = windowManager.get() ?: return
+        lp.x = frame.x
+        lp.y = frame.y
+        lp.width = frame.width
+        lp.height = frame.height
+        runCatching { wm.updateViewLayout(view, lp) }.onFailure {
+            lp.x = previous.x
+            lp.y = previous.y
+            lp.width = previous.width
+            lp.height = previous.height
+        }
+    }
+
+    private fun finishResize() {
+        val session = resizeSession ?: return
+        resizeFrames?.flush()
+        resizeSession = null
+        val frame = currentFrame() ?: return
+        if (frame.width != session.frame.width || frame.height != session.frame.height) {
+            session.geometry.storedSize(frame).let {
+                preferredSize = it
+                sizeStore.save(it)
+            }
+        }
+    }
+
+    private fun cancelResize() {
+        resizeFrames?.cancel()
+        val session = resizeSession ?: return
+        resizeSession = null
+        geometry()?.fit(session.frame)?.let { applyFrame(it) }
+    }
+
+    private fun refreshPanelSize() {
+        cancelResize()
+        val geometry = geometry() ?: return
+        val size = geometry.initialSize(preferredSize)
+        val frame = currentFrame() ?: return
+        applyFrame(geometry.fit(frame.copy(width = size.first, height = size.second)))
+        lastAnchorRect?.let { updateSticky(it) }
     }
 
     private fun applyViewFocusability(view: ComposeView, isFocusable: Boolean) {

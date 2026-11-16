@@ -33,6 +33,7 @@ object Inspector {
     private var inspectorEngine: InspectorEngine? = null
     private var floatingTrigger: FloatingTrigger? = null
     private var floatingDetailsView: FloatingDetailsView? = null
+    private val activityTracker = ActivityTracker()
 
     private var installed = false
     var isInspectionEnabled: Boolean = false
@@ -67,6 +68,8 @@ object Inspector {
     fun install(context: Context) {
         // Must precede composition: background() captures this flag when its element is created.
         isDebugInspectorInfoEnabled = true
+        // Also refresh the Activity on repeated installs, even if the runtime is initialized.
+        activityTracker.register(context)
         if (installed) return
         applicationContext = context.applicationContext
 
@@ -75,18 +78,17 @@ object Inspector {
         }
 
         windowManager = applicationContext.getSystemService()
-        ActivityTracker.register(context)
         installed = true
     }
 
     @MainThread
     fun enableInspection() {
         if (!installed || isInspectionEnabled) return
-        val activity = ActivityTracker.top ?: return
+        val activity = activityTracker.top ?: return
 
         val engine = InspectorEngine(
             configProvider = configProvider,
-            topActivityProvider = { ActivityTracker.top },
+            topActivityProvider = { activityTracker.top },
             onSelectionChanged = { selectionState.value = it },
             invalidator = { overlayCanvas?.invalidate() },
         )

@@ -324,6 +324,33 @@ class ComposeStyleIntegrationTest {
         }
     }
 
+    @Test fun hitTestExtractsStylesOnlyForTheFinalCandidate() {
+        lateinit var host: View
+        var parentReads = 0
+        var childReads = 0
+        rule.setContent {
+            host = LocalView.current
+            Box(Modifier.size(160.dp).semantics {
+                text = AnnotatedString("parent")
+                getTextLayoutResult { parentReads++; false }
+            }) {
+                Box(Modifier.size(80.dp).testTag("winner").semantics {
+                    text = AnnotatedString("child")
+                    getTextLayoutResult { childReads++; false }
+                })
+            }
+        }
+        val node = rule.onNodeWithTag("winner", useUnmergedTree = true).fetchSemanticsNode()
+        rule.runOnIdle {
+            val bounds = node.boundsInWindow
+            val hit = ComposeHitTester.hitTest(host.rootView, bounds.center.x.toInt(), bounds.center.y.toInt())!!
+            assertEquals(node.id.toString(), hit.properties.id)
+            assertEquals(0, parentReads)
+            assertEquals(1, childReads)
+            assertEquals("child", hit.properties.styles.filterIsInstance<UiNodeStyleProperties.TextStyle>().single().text)
+        }
+    }
+
     @Test fun viewTextAndSolidBackgroundRemainSupportedAndGradientIsUnknown() {
         lateinit var view: TextView
         rule.setContent {

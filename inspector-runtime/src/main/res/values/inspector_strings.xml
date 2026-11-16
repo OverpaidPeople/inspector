@@ -53,4 +53,10 @@
     <string name="inspector_bounds_guide">Text bounds guide</string>
     <string name="inspector_guide_on">On</string>
     <string name="inspector_guide_off">Off</string>
+    <string name="inspector_resize_top_left">Resize PROP from top left</string>
+    <string name="inspector_resize_top_right">Resize PROP from top right</string>
+    <string name="inspector_resize_bottom_left">Resize PROP from bottom left</string>
+    <string name="inspector_resize_bottom_right">Resize PROP from bottom right</string>
+    <string name="inspector_section_expanded">펼침</string>
+    <string name="inspector_section_collapsed">접힘</string>
 </resources>

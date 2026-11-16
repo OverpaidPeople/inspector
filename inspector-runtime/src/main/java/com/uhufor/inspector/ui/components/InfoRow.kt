@@ -2,7 +2,8 @@ package com.uhufor.inspector.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
@@ -29,7 +31,6 @@ import com.uhufor.inspector.R
 import com.uhufor.inspector.ui.compose.dvdp
 import com.uhufor.inspector.ui.compose.dvsp
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun InfoRow(
     label: String,
@@ -37,6 +38,7 @@ internal fun InfoRow(
     modifier: Modifier = Modifier,
     previewColor: Int? = null,
 ) {
+    val valueScroll = remember(value) { ScrollState(0) }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -75,6 +77,7 @@ internal fun InfoRow(
         Text(
             text = value,
             fontSize = 9.dvsp,
+            maxLines = 1,
             modifier = Modifier
                 .fillMaxHeight()
                 .weight(weight = 1f, fill = true)
@@ -83,7 +86,8 @@ internal fun InfoRow(
                     shape = RoundedCornerShape(topEnd = 2.dp, bottomEnd = 2.dp)
                 )
                 .padding(horizontal = 2.dvdp)
-                .basicMarquee(iterations = 5)
+                // Keep an idle panel still; long values remain readable with a horizontal drag.
+                .horizontalScroll(valueScroll)
         )
     }
 }
