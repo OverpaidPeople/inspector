@@ -1,12 +1,24 @@
 # UI Inspector
 
+[한국어](README.ko.md)
+
 **UI Inspector** is a debugging overlay library for <u>Android</u> that allows developers to visually
 inspect layout elements during development.
 
+This repository is a fork of [uhufor/inspector](https://github.com/uhufor/inspector), extended for comparing running Android UI with design specifications such as Figma. It is already an Android library; no separate conversion is required. See [Use this fork](#use-this-fork) to connect it to another app. The upstream Maven coordinates alone do **not** include this fork's changes.
+
+### Additions in this fork
+
+- **Compose styles in PROP**: text, text/background `#AARRGGBB` with color previews, source font size in `sp`, readable font weight/italic, font family, line height, letter spacing and alignment.
+- **Design checks**: readable corner radii, border and local layer alpha, text layout bounds, and optional baseline/bounds guides. Unreadable or mixed values display **확인 불가**; gradients/images are not reduced to a guessed solid color.
+- **Customizable PROP**: drag any corner to resize; click section titles to collapse/expand. Size and collapsed sections survive app restarts. Drag long property values horizontally to read them.
+- **Runtime fixes**: fewer redundant window updates, style extraction only for the final hit-test candidate, and recovery of an already resumed Activity when installation happens late.
+
+View editing remains supported; Compose inspection is read-only. Detailed support limits and validation results are retained below in [Compose style inspection](#compose-style-inspection).
+
 This project is inspired by the UI inspection (measurement) function of the now-<u>defunct</u> **Window VQA** app.
 
-It is intended for **debug builds only**, and a corresponding **no-op module** ensures no overhead
-or code inclusion in release builds.
+It is intended for **debug builds only**. A corresponding **no-op module** keeps inspection overlays and style extractors out of release builds.
 
 | Screenshot 1                            | Screenshot 2                            | Screenshot 3                            | Screenshot 4                            |
 | --------------------------------------- | :-------------------------------------- | :-------------------------------------- | :-------------------------------------- |
@@ -55,8 +67,7 @@ fun Profile(profile: Profile, modifier: Modifier) {
         painter = painterResource(id = R.drawable.ic_profile_placeholder),
         contentDescription = "profile holder", // Option 1
         modifier = Modifier
-          // or .clearAndSetSemantics {}       // Option 2
-          // or .semantics {}                  // Option 3
+          // or .semantics {}                  // Option 2
           .fillMaxSize(),
         contentScale = ContentScale.Crop
       )
@@ -71,14 +82,13 @@ fun Profile(profile: Profile, modifier: Modifier) {
 This library requires the **“Draw over other apps”** permission to display the overlay UI.
 
 First, you need to declare this permission in <u>your app</u> to allow drawing over other apps.
-Add the following to your `AndroidManifest.xml` file:
-(You can also place it in a <u>debug-specific manifest</u> to avoid including it in release builds.)
+Add the following to your app's `src/debug/AndroidManifest.xml` file:
+(Keeping this declaration in a <u>debug-specific manifest</u> avoids including it in release builds.)
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<manifest>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-  ..
 </manifest>
 ```
 
@@ -127,12 +137,12 @@ In Relative inspection mode, you can control how guide lines are rendered via a 
 A floating panel shows detailed information for the selected element and provides limited editing capabilities.
 
 - **Scope**
-  - Editing is currently available for the **XML-based View system** only.
+  - Editing is currently available for the **Android View system**, including XML and programmatically created Views.
   - Editing for Jetpack Compose elements is not supported.
 - **Examples**
-  - Layout-related properties such as margin and padding
+  - Margin/padding, and TextView text, font size and color
 - **Others**
-  - The floating panel supports UI scale adjustment.
+  - The floating panel supports UI scale adjustment, saved corner resizing and independent section collapse/expand.
 
 |                  Details                  |                  Editing                  |                 UI Scale                  |
 | :---------------------------------------: | :---------------------------------------: | :---------------------------------------: |
@@ -149,7 +159,7 @@ You can control behavior at runtime via the following APIs.
   ```
 - **Traverse Type**
   ```kotlin
-  Inspector.setTraverseType(TraverseType.HIERARCHY)
+  Inspector.setTraverseType(TraverseType.HIERARCHICAL)
   Inspector.setTraverseType(TraverseType.DFS)
   ```
 - **Unit Mode**
@@ -159,8 +169,8 @@ You can control behavior at runtime via the following APIs.
   ```
 - **Details Panel**
   ```kotlin
-  Inspector.enableDetailsView()
-  Inspector.disableDetailsView()
+  Inspector.enableDetailsView(true)
+  Inspector.enableDetailsView(false)
   Inspector.setDetailsViewUiScale(1.0f)
   ```
 
@@ -168,7 +178,50 @@ You can control behavior at runtime via the following APIs.
 
 ## Download
 
-Add the following dependencies from Maven Central:
+### Use this fork
+
+`inspector-runtime` and `inspector-noop` are already Android library modules. To use the fork without publishing it, clone this repository next to your app project:
+
+```text
+workspace/
+  MyApp/
+  inspector/    # clone of OverpaidPeople/inspector
+```
+
+Add this [composite build](https://docs.gradle.org/8.11.1/userguide/composite_builds.html) to **your app's** `settings.gradle.kts`, outside `pluginManagement`. Adjust the path to your checkout; keep the existing plugin/repository configuration.
+
+```kotlin
+includeBuild("../inspector") {
+    name = "inspector-fork"
+    dependencySubstitution {
+        substitute(module("io.github.uhufor:inspector-runtime"))
+            .using(project(":inspector-runtime"))
+        substitute(module("io.github.uhufor:inspector-noop"))
+            .using(project(":inspector-noop"))
+    }
+}
+```
+
+Then use these dependencies in **your app module's** `build.gradle.kts`:
+
+```kotlin
+dependencies {
+    debugImplementation("io.github.uhufor:inspector-runtime:SNAPSHOT")
+    releaseImplementation("io.github.uhufor:inspector-noop:SNAPSHOT")
+}
+```
+
+The substitutions above resolve these coordinates to the **local fork source**, including its own version catalog and transitive dependencies. They do not require a published `SNAPSHOT` artifact. Keep the substitution in place and use a known commit/tag of this checkout. If the modules are already part of the same Gradle build, use `debugImplementation(project(":inspector-runtime"))` and `releaseImplementation(project(":inspector-noop"))` instead; the sample app uses this setup.
+
+The checked-in build uses Gradle **8.11.1**, AGP **8.9.2**, Kotlin **2.1.10**, Java **17** for Gradle, `compileSdk = 35` and `minSdk = 28`. Compose extraction was validated against UI/Foundation **1.6.8**. Align the host app's build tools/SDK as needed; compatibility with other Compose versions is not guaranteed.
+
+The dependency and initialization examples were also checked in a separate consumer app: debug/release builds passed, and the generated debug APK contained fork inspection classes while the release APK excluded them.
+
+For remote dependency-only distribution, configure fork-owned publication coordinates, versions and credentials first. The existing publishing scripts still target the upstream `io.github.uhufor` namespace; pushing to this repository does not itself publish a fork artifact.
+
+### Upstream release (reference)
+
+The original project's Maven Central dependencies are shown below for reference. **Without the fork substitution above, they resolve the upstream implementation, not this fork.**
 
 ```kotlin
 dependencies {
@@ -179,19 +232,38 @@ dependencies {
 
 ## Example
 
+Merge this initialization into your existing Application/Activity rather than replacing them. Install before the first Compose composition. Declare the Application in your manifest if your app does not already have one. `install()` opens the overlay permission settings when permission is missing; after permission is granted, the Activity's `onResume()` completes installation and shows the toolbar.
+
 ```kotlin
+import android.app.Activity
+import android.app.Application
+import android.provider.Settings
+import com.uhufor.inspector.Inspector
+
 class InspectorApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         // Install before using
         Inspector.install(this)
-        // To use the default floating control button (Option)
-        Inspector.showFloatingTrigger()
     }
 }
 
 // For manual control of inspection
 class InspectorActivity : Activity() {
+    override fun onResume() {
+        super.onResume()
+        if (!Settings.canDrawOverlays(this)) return
+        Inspector.install(this) // Retry after granting permission; also updates the current Activity.
+        Inspector.enableDetailsView(true)
+        Inspector.showFloatingTrigger()
+    }
+
+    override fun onPause() {
+        Inspector.disableInspection()
+        Inspector.hideFloatingTrigger()
+        super.onPause()
+    }
+
     fun enableInspection() {
         Inspector.enableInspection()
     }
@@ -202,11 +274,13 @@ class InspectorActivity : Activity() {
 }
 ```
 
+The toolbar's three buttons, from top to bottom, toggle **inspection**, **DP/PX** and **PROP details**. DP/PX changes geometric measurements; Compose font sizes retain their original `sp`. The overlay inspects the host app's own View/Compose tree, not the UI trees of unrelated apps beneath it.
+
 ## Compose style inspection
 
 The existing details panel now shows text content, text/background `#AARRGGBB` colors with alpha-aware swatches, source font size in **sp**, numeric font weight and italic state when available. Unknown values display **확인 불가**. Compose styles are read-only; View text editing and all existing measurements remain supported.
 
-Call `Inspector.install(this)` in `Application.onCreate()`, **before the first composition**, then use the existing `Inspector.enableDetailsView()`. No per-component inspection Modifier is needed for standard Text/TextField. Runtime installation enables Compose's global `isDebugInspectorInfoEnabled` to retain Modifier metadata. The flag stays enabled for subsequent compositions; elements created before installation may need screen recreation. Keep `debugImplementation(":inspector-runtime")` and `releaseImplementation(":inspector-noop")` (using `project(...)` for local modules); the no-op module is unchanged and does not enable metadata.
+Call `Inspector.install(this)` in `Application.onCreate()`, **before the first composition**, then use `Inspector.enableDetailsView(true)`. No per-component inspection Modifier is needed for standard Text/TextField. Runtime installation enables Compose's global `isDebugInspectorInfoEnabled` to retain Modifier metadata. The flag stays enabled for subsequent compositions; elements created before installation may need screen recreation. Use the debug runtime and release no-op dependencies described in [Use this fork](#use-this-fork); the no-op module does not enable metadata.
 
 This implementation targets the resolved Compose UI/Foundation **1.6.8** (BOM `2024.08.00`):
 
@@ -275,3 +349,4 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+```

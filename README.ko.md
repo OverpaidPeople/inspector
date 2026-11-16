@@ -1,11 +1,24 @@
 
 # UI Inspector
 
+[English](README.md)
+
 **UI Inspector**는 안드로이드 개발 중 UI 레이아웃 요소를 시각적으로 검사할 수 있는 디버깅 오버레이 라이브러리입니다.
+
+이 저장소는 [uhufor/inspector](https://github.com/uhufor/inspector)를 포크해 Figma 등 디자인 명세와 실행 중인 Android UI를 비교하기 위한 기능을 추가했습니다. 이미 Android 라이브러리이므로 별도로 라이브러리화할 필요는 없습니다. 다른 앱에 연결하는 방법은 [이 포크 사용하기](#이-포크-사용하기)를 확인하세요. 원본 Maven 의존성만 추가하면 **이번 포크의 변경은 반영되지 않습니다.**
+
+### 이번 포크에서 추가한 기능
+
+- **PROP의 Compose 스타일**: 텍스트, 글자색·배경색의 `#AARRGGBB`와 미리보기, 원본 `sp` 글자 크기, 읽을 수 있는 굵기·이탤릭·폰트 family·줄 높이·자간·정렬.
+- **디자인 확인**: 읽을 수 있는 모서리 반경·테두리·로컬 레이어 alpha, 텍스트 레이아웃 영역 및 선택 가능한 baseline/경계 가이드. 읽을 수 없거나 혼합된 값은 **확인 불가**로 표시하고, 그라데이션·이미지를 단색으로 추측하지 않습니다.
+- **PROP 표시 조절**: 네 모서리 드래그로 크기 조절, 섹션 제목 클릭으로 접기/펼치기. 크기와 접힘 상태는 앱 재실행 후에도 유지됩니다. 긴 값은 좌우 드래그로 읽습니다.
+- **실행 개선**: 중복 창 갱신 감소, 최종 선택 후보만 스타일 추출, 늦게 설치해도 이미 열린 Activity를 찾아 첫 ON 처리.
+
+기존 View 편집 기능은 유지하며 Compose는 읽기 전용입니다. 상세 지원 범위와 검증 결과는 아래 [Compose 스타일 검사](#compose-스타일-검사)에 정리되어 있습니다.
 
 이 프로젝트는 현재는 종료된 **Window VQA** 앱의 UI 검사(측정) 기능에서 영감을 받았습니다.
 
-**디버그 빌드 전용**으로 사용되며, **no-op 모듈**이 함께 제공되어 릴리즈 빌드에서는 코드가 포함되지 않고 성능에도 영향을 주지 않습니다.
+**디버그 빌드 전용**으로 사용하며, **no-op 모듈**을 연결한 릴리즈 빌드에는 검사 오버레이와 스타일 추출기가 포함되지 않습니다.
 
 | 스크린샷 1                              | 스크린샷 2                              | 스크린샷 3                              | 스크린샷 4                              |
 | --------------------------------------- | :-------------------------------------- | :-------------------------------------- | :-------------------------------------- |
@@ -67,14 +80,13 @@ fun Profile(profile: Profile, modifier: Modifier) {
 ## 권한
 
 이 라이브러리는 오버레이 UI를 표시하기 위해 **"다른 앱 위에 그리기"** 권한이 필요합니다.
-먼저 **당신의 앱**에 다른 앱 위에 권한을 사용하도록 추가해야 합니다. `AndroidManifest.xml`에 아래 권한을 추가합니다.
-(debug용 `AndroidManifest.xml` 을 추가로 구성하면 상용 버전에 권환이 포함되지 않도록 할 수 있습니다.)
+먼저 **사용할 앱**의 `src/debug/AndroidManifest.xml`에 아래 권한을 추가합니다.
+(debug 전용 매니페스트에 선언하면 상용 버전에 이 권한이 포함되지 않습니다.)
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<manifest>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-  ..
 </manifest>
 ```
 
@@ -123,12 +135,12 @@ fun Profile(profile: Profile, modifier: Modifier) {
 선택된 요소의 상세 정보를 플로팅 패널로 확인할 수 있으며, 일부 속성 편집 기능을 제공합니다.
 
 - **지원 범위**
-    - 편집 기능은 현재 **XML 기반 View 시스템**에 한해 제공됩니다.
+    - 편집 기능은 **Android View 시스템**에 제공됩니다. XML과 코드로 생성한 View 모두 포함합니다.
     - Jetpack Compose 요소의 속성 편집은 지원하지 않습니다.
 - **가능한 편집 항목 예시**
-    - margin, padding 등 뷰 레이아웃 관련 속성
+    - margin/padding 및 TextView의 텍스트·글자 크기·색상
 - **기타**
-    - 플로팅 패널의 UI 스케일 조정이 가능합니다.
+    - 플로팅 패널의 UI 스케일 조정, 크기 저장 및 섹션별 접기/펼치기가 가능합니다.
 
 |                 상세 보기                 |                   편집                    |                 UI 스케일                 |
 | :---------------------------------------: | :---------------------------------------: | :---------------------------------------: |
@@ -146,7 +158,7 @@ fun Profile(profile: Profile, modifier: Modifier) {
 
 - **트리 탐색 방식**
   ```kotlin
-  Inspector.setTraverseType(TraverseType.HIERARCHY)
+  Inspector.setTraverseType(TraverseType.HIERARCHICAL)
   Inspector.setTraverseType(TraverseType.DFS)
   ```
 
@@ -156,10 +168,10 @@ fun Profile(profile: Profile, modifier: Modifier) {
   Inspector.setUnitMode(UnitMode.PX)
   ```
 
-- **상세 보기 패널*
+- **상세 보기 패널**
   ```kotlin
-  Inspector.enableDetailsView()
-  Inspector.disableDetailsView()
+  Inspector.enableDetailsView(true)
+  Inspector.enableDetailsView(false)
   Inspector.setDetailsViewUiScale(1.0f)
   ```
 
@@ -167,7 +179,50 @@ fun Profile(profile: Profile, modifier: Modifier) {
 
 ## 다운로드
 
-Maven Central을 통해 다음 의존성을 추가하세요:
+### 이 포크 사용하기
+
+`inspector-runtime`과 `inspector-noop`은 이미 Android 라이브러리 모듈입니다. 별도 배포 없이 사용하려면 이 저장소를 앱 프로젝트 옆에 체크아웃합니다.
+
+```text
+workspace/
+  MyApp/
+  inspector/    # OverpaidPeople/inspector 체크아웃
+```
+
+**사용할 앱의** `settings.gradle.kts`에서 `pluginManagement` 바깥에 아래 [composite build](https://docs.gradle.org/8.11.1/userguide/composite_builds.html) 설정을 추가합니다. 실제 체크아웃 위치에 맞게 경로를 수정하고, 기존 플러그인·저장소 설정은 유지합니다.
+
+```kotlin
+includeBuild("../inspector") {
+    name = "inspector-fork"
+    dependencySubstitution {
+        substitute(module("io.github.uhufor:inspector-runtime"))
+            .using(project(":inspector-runtime"))
+        substitute(module("io.github.uhufor:inspector-noop"))
+            .using(project(":inspector-noop"))
+    }
+}
+```
+
+그다음 **앱 모듈의** `build.gradle.kts`에 의존성을 추가합니다.
+
+```kotlin
+dependencies {
+    debugImplementation("io.github.uhufor:inspector-runtime:SNAPSHOT")
+    releaseImplementation("io.github.uhufor:inspector-noop:SNAPSHOT")
+}
+```
+
+위 치환 설정을 함께 사용하면 이 좌표는 원격 배포본이 아니라 **로컬 포크 소스**로 연결됩니다. 포크 자체의 버전 카탈로그와 전이 의존성도 함께 사용하므로 배포된 `SNAPSHOT` 파일이 필요하지 않습니다. 치환 설정을 유지하고, 검증한 커밋/태그로 체크아웃해 사용하세요. 이미 두 모듈을 같은 Gradle 빌드에 연결했다면 샘플처럼 `debugImplementation(project(":inspector-runtime"))`, `releaseImplementation(project(":inspector-noop"))`을 사용합니다.
+
+저장소의 빌드 기준은 Gradle **8.11.1**, AGP **8.9.2**, Kotlin **2.1.10**, Gradle 실행용 Java **17**, `compileSdk = 35`, `minSdk = 28`입니다. Compose 추출은 UI/Foundation **1.6.8**에서 검증했습니다. 소비 앱의 빌드 도구·SDK도 호환되게 맞춰야 하며, 다른 Compose 버전의 추출 호환성을 보장하지 않습니다.
+
+의존성·초기화 예제는 별도 소비 앱에서도 확인했습니다. Debug/Release 빌드가 통과했고, 생성된 debug APK에는 포크의 검사 클래스가 포함되고 release APK에는 제외되는 것을 확인했습니다.
+
+원격 의존성 주소만으로 배포하려면 포크 소유의 배포 좌표·버전·인증 정보를 먼저 구성해야 합니다. 기존 배포 스크립트는 여전히 원본 `io.github.uhufor` 네임스페이스를 대상으로 하며, 이 저장소에 푸시하는 것만으로 포크 배포본이 생성되지는 않습니다.
+
+### 원본 배포본 (참고)
+
+기존 프로젝트의 Maven Central 의존성은 참고용으로 유지합니다. **위 포크 치환 설정이 없으면 아래 좌표는 이 포크가 아닌 원본 구현을 사용합니다.**
 
 ```kotlin
 dependencies {
@@ -180,19 +235,38 @@ dependencies {
 
 ## 예제 코드
 
+기존 Application/Activity에 아래 초기화 코드를 합쳐 사용하세요. Compose의 첫 composition 전에 설치하며, 별도 Application을 새로 만들었다면 앱 매니페스트에도 등록해야 합니다. `install()`은 권한이 없을 때 오버레이 권한 설정을 엽니다. 권한을 허용하고 돌아오면 Activity의 `onResume()`에서 설치를 마치고 버튼을 표시합니다.
+
 ```kotlin
+import android.app.Activity
+import android.app.Application
+import android.provider.Settings
+import com.uhufor.inspector.Inspector
+
 class InspectorApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         // 사용 전 설치가 필요합니다
         Inspector.install(this)
-        // 기본 제공되는 플로팅 버튼을 사용하려는 경우 (선택)
-        Inspector.showFloatingTrigger()
     }
 }
 
 // 검사 기능을 수동으로 제어하고 싶을 경우
 class InspectorActivity : Activity() {
+    override fun onResume() {
+        super.onResume()
+        if (!Settings.canDrawOverlays(this)) return
+        Inspector.install(this) // 권한 허용 후 재시도하며 현재 Activity도 갱신합니다.
+        Inspector.enableDetailsView(true)
+        Inspector.showFloatingTrigger()
+    }
+
+    override fun onPause() {
+        Inspector.disableInspection()
+        Inspector.hideFloatingTrigger()
+        super.onPause()
+    }
+
     fun enableInspection() {
         Inspector.enableInspection()
     }
@@ -206,6 +280,8 @@ class InspectorActivity : Activity() {
 ---
 
 ## Compose 스타일 검사
+
+플로팅 버튼은 위에서부터 **검사 ON/OFF**, **DP/PX 전환**, **PROP 상세 표시** 순서입니다. DP/PX는 크기·거리 표시를 바꾸며 Compose 글자 크기는 원본 `sp`를 유지합니다. 검사 대상은 라이브러리를 연결한 앱의 View/Compose 트리이며, 버튼 아래의 다른 앱 UI 트리를 읽는 기능은 아닙니다.
 
 앱의 각 `Text`나 컴포넌트를 수정할 필요 없이, 기존 상세 패널에서 다음 정보를 확인할 수 있습니다.
 
@@ -222,7 +298,7 @@ override fun onCreate() {
     Inspector.install(this)
 }
 // 검사 중 상세 패널 표시
-Inspector.enableDetailsView()
+Inspector.enableDetailsView(true)
 ```
 
 runtime의 `install()`은 Compose의 전역 `isDebugInspectorInfoEnabled`를 켭니다. 이는 이후 생성되는 Modifier의 검사 메타데이터를 보존하며 검사 종료 시에도 유지됩니다. 개별 컴포넌트 변경 없이 `Modifier.background`의 색상/브러시를 구분하기 위한 설정입니다. 이미 생성된 Modifier에는 소급 적용되지 않으므로, 늦게 설치했다면 화면을 다시 생성해야 배경 정보를 얻을 수 있습니다. 메타데이터 보존 비용은 debug runtime에만 발생하며 release의 `inspector-noop`에는 적용되지 않습니다.
