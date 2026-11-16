@@ -48,7 +48,7 @@ Since **SemanticsNode** is used for UI element extraction in **Compose**, any no
 fun Profile(profile: Profile, modifier: Modifier) {
   Box(
     modifier = Modifier
-      .clearAndSetSemantics {} // or .semantics {}
+      .semantics {} // Only if the container itself needs to be selectable
       .size(100.dp)
   ) {
       Image(
@@ -201,6 +201,39 @@ class InspectorActivity : Activity() {
     }
 }
 ```
+
+## Compose style inspection
+
+The existing details panel now shows text content, text/background `#AARRGGBB` colors with alpha-aware swatches, source font size in **sp**, numeric font weight and italic state when available. Unknown values display **확인 불가**. Compose styles are read-only; View text editing and all existing measurements remain supported.
+
+Call `Inspector.install(this)` in `Application.onCreate()`, **before the first composition**, then use the existing `Inspector.enableDetailsView()`. No per-component inspection Modifier is needed for standard Text/TextField. Runtime installation enables Compose's global `isDebugInspectorInfoEnabled` to retain Modifier metadata. The flag stays enabled for subsequent compositions; elements created before installation may need screen recreation. Keep `debugImplementation(":inspector-runtime")` and `releaseImplementation(":inspector-noop")` (using `project(...)` for local modules); the no-op module is unchanged and does not enable metadata.
+
+This implementation targets the resolved Compose UI/Foundation **1.6.8** (BOM `2024.08.00`):
+
+- Text uses `SemanticsActions.GetTextLayoutResult`; missing, false, throwing or ambiguous results keep only available `Text`/`EditableText` semantics content. Password semantics are never queried for unmasked layout/content.
+- Overlapping AnnotatedString spans are merged into effective runs. Each property is shown only if uniform across the text. Mixed/unspecified properties, shader colors and `em` font sizes stay unknown; line height and letter spacing preserve their declared `sp`/`em`. No guessed defaults or pixel-to-sp conversion are used for Compose.
+- Background uses public `layoutInfo.getModifierInfo()` / `InspectableValue` metadata for one local `Modifier.background`. A `SolidColor` brush includes its explicit alpha. Gradients, multiple backgrounds, image painters, standard custom drawing modifiers, inaccessible metadata and unsupported drawing stay unknown. There is no private-field reflection or dependency on newer background semantics APIs; other Compose versions are not guaranteed.
+- Colors describe configured local paint, not composited pixels, parent colors or final graphics-layer opacity. Surface/Canvas/custom Modifier drawing may be unavailable. Arbitrary custom draw behavior cannot be reconstructed.
+- Selection still uses the unmerged Semantics tree. A plain Box/Canvas without semantics is not newly selectable. Only if such a container itself needs selection, add `Modifier.semantics { }` to that container. Hidden descendants of `clearAndSetSemantics` cannot be recovered.
+- View support is preserved. Gradient drawables and ripple effect colors are no longer misreported as solid background colors.
+
+Run `:inspector-runtime:testDebugUnitTest` and `:inspector-runtime:connectedDebugAndroidTest` (API 28+ device/emulator required for instrumentation).
+
+Validation for this change: **all 22 unit tests and all 13 instrumentation tests passed** (Pixel 9 Pro / Android 16 emulator). Coverage includes typography units and mixed spans/paragraphs, actual modifier metadata, callbacks never executed, padded text origins, decorated input geometry limitations, RTL corners, guide toggles and pixel rendering, and View regression. Equal-area hits prefer the deeper descendant so a parent cannot hide Text styles. App debug/release, runtime release and no-op release builds passed. Runtime debug lint passed with zero errors and one existing long-vector-path warning. APK DEX inspection confirmed both extractors and guide options are present in debug and absent from release. Two existing sample references to a runtime-only icon were moved to a sample-owned resource so the no-op release can build. The final debug app was installed on the emulator.
+
+API references: [GetTextLayoutResult](https://developer.android.com/reference/kotlin/androidx/compose/ui/semantics/SemanticsActions), [LayoutInfo.getModifierInfo](https://developer.android.com/reference/kotlin/androidx/compose/ui/layout/LayoutInfo). Background metadata was also checked against the resolved Foundation 1.6.8 source JAR.
+
+### Design properties available in the running app
+
+No external design/font file is required. Scroll the existing PROP details panel:
+
+- **Text** adds configured font family, line height, letter spacing, alignment and include-font-padding. Compose preserves declared `sp`/`em`; View line height uses measured `px` and letter spacing uses `em`. Mixed/unspecified properties stay unknown. Font labels identify configured generic families or bundled resource names, not a guessed glyph fallback typeface.
+- **Appearance** adds physical TL/TR/BR/BL corner radii, border width/color with a swatch and local layer alpha. Radii use measured Shape outlines and respect layout direction; generic paths and conflicting shapes stay unknown. Border width preserves declared dp, including `Hairline (1px)` for zero-dp strokes. Multiple borders and gradient border colors stay unknown.
+- **Alignment** adds text layout bounds, line count and first/last baseline offsets from the text layout top. Enable **Baseline guide** for magenta lines and **Text bounds guide** for yellow layout outlines. They start off, persist across selections and are disabled when layout data is unavailable. These are layout bounds, not glyph-ink outlines; intermediate baselines are not guessed on Compose 1.6.8. Decorated inputs whose container size differs from the text layout keep typography but omit guides because the inner text origin is unavailable.
+- Local layer alpha excludes ancestors and fill-color alpha. `graphicsLayer { ... }` blocks are never executed by the inspector, so unreadable block-based values remain unknown. View support includes readable drawable corners and View alpha; drawable stroke/family details and geometry for transformed Views can be unavailable.
+- Compose padding/margin placeholders now display unknown instead of misleading zeroes. Existing bounds/distance measurements remain available. Values reflect the latest selection/scan; refresh after app state changes.
+
+Select the blue text in **Compose UI → Background color samples** to compare `16sp` font size, `24sp` line height, `0.5sp` spacing, sans-serif, centered text, `8dp` corners, `2dp / #FF0D47A1` border and `90%` layer alpha.
 
 ## License
 

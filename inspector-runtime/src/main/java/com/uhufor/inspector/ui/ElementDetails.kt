@@ -49,6 +49,7 @@ import androidx.core.util.TypedValueCompat
 import com.uhufor.inspector.R
 import com.uhufor.inspector.UnitMode
 import com.uhufor.inspector.engine.SelectionState
+import com.uhufor.inspector.engine.TextGuideOptions
 import com.uhufor.inspector.engine.UiNodeActionProperties
 import com.uhufor.inspector.engine.UiNodeProperties
 import com.uhufor.inspector.engine.UiNodeStyleProperties
@@ -77,6 +78,8 @@ internal fun ElementDetails(
     onRequestFocusable: (Boolean) -> Unit,
     onApplyMarginPadding: (Int, Int, Int, Int, Int, Int, Int, Int) -> Unit,
     onApplyText: (text: String, size: Float?, color: Int?) -> Unit,
+    textGuideOptions: TextGuideOptions = TextGuideOptions(),
+    onTextGuideOptionsChange: (TextGuideOptions) -> Unit = {},
 ) {
     Card(
         modifier = Modifier
@@ -115,7 +118,9 @@ internal fun ElementDetails(
                         selectionState = selectionState,
                         unitMode = unitMode,
                         onEditMarginPadding = { onEnterEditMode(EditMode.MarginPadding) },
-                        onEditText = { onEnterEditMode(EditMode.Text) }
+                        onEditText = { onEnterEditMode(EditMode.Text) },
+                        textGuideOptions = textGuideOptions,
+                        onTextGuideOptionsChange = onTextGuideOptionsChange,
                     )
                 }
 
@@ -152,6 +157,8 @@ private fun ElementInfoContent(
     unitMode: UnitMode,
     onEditMarginPadding: () -> Unit,
     onEditText: () -> Unit,
+    textGuideOptions: TextGuideOptions,
+    onTextGuideOptionsChange: (TextGuideOptions) -> Unit,
 ) {
     SectionHeader(
         title = stringResource(R.string.inspector_title_details),
@@ -182,7 +189,8 @@ private fun ElementInfoContent(
         onEditRequest = onEditText
     )
     Actions(selectionState)
-    Styles(selectionState)
+    AppearanceDetails(selectionState, unitMode)
+    AlignmentDetails(selectionState, unitMode, textGuideOptions, onTextGuideOptionsChange)
 }
 
 @Composable
@@ -215,7 +223,7 @@ private fun TextEditor(
         val initialTextSize = textStyle.textSize?.toSizeInSp()
         val initialTextColor = textStyle.textColor?.toHexTextColor()
 
-        var textState by remember(textStyle.text) { mutableStateOf(textStyle.text) }
+        var textState by remember(textStyle.text) { mutableStateOf(textStyle.text.orEmpty()) }
         var textSizeState by remember(initialTextSize) {
             mutableStateOf(initialTextSize?.toDisplayString())
         }
@@ -343,6 +351,16 @@ private fun MarginPadding(
     val density = LocalDensity.current.density
     val isView = selectionState.properties.type == UiNodeType.VIEW
 
+    if (!isView) {
+        Spacer(modifier = Modifier.height(8.dvdp))
+        SectionTitle(stringResource(R.string.inspector_title_margin_padding))
+        InfoRow(stringResource(R.string.inspector_column_margin),
+            stringResource(R.string.inspector_value_unavailable))
+        InfoRow(stringResource(R.string.inspector_column_padding),
+            stringResource(R.string.inspector_value_unavailable))
+        return
+    }
+
     val margin = remember(selectionState.properties.margin, unitMode, density) {
         selectionState.properties.margin.formatAsList(unitMode, density)
     }
@@ -401,38 +419,6 @@ private fun Actions(selectionState: SelectionState) {
 }
 
 @Composable
-private fun Styles(selectionState: SelectionState) {
-    val styles = selectionState.properties.styles.filterNot {
-        it is UiNodeStyleProperties.TextStyle
-    }
-
-    if (styles.isNotEmpty()) {
-        Spacer(modifier = Modifier.height(8.dvdp))
-        SectionTitle(stringResource(R.string.inspector_title_styles))
-        styles.forEach { style ->
-            when (style) {
-                is UiNodeStyleProperties.ColorStyle -> {
-                    style.backgroundType?.let { backgroundType ->
-                        InfoRow(
-                            stringResource(R.string.inspector_style_bg_type),
-                            backgroundType
-                        )
-                    }
-                    style.backgroundColor?.let { backgroundColor ->
-                        InfoRow(
-                            stringResource(R.string.inspector_style_bg_color),
-                            "#${backgroundColor.toHexString()}"
-                        )
-                    }
-                }
-
-                else -> Unit
-            }
-        }
-    }
-}
-
-@Composable
 private fun TextContent(
     selectionState: SelectionState,
     onEditRequest: () -> Unit,
@@ -442,9 +428,6 @@ private fun TextContent(
         .firstOrNull()
         ?: return
     val isEditable = selectionState.properties.type == UiNodeType.VIEW
-    val (density, fontScale) = LocalDensity.current.run {
-        density to fontScale
-    }
 
     Spacer(modifier = Modifier.height(8.dvdp))
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -474,15 +457,21 @@ private fun TextContent(
         Spacer(modifier = Modifier.height(2.dvdp))
         InfoRow(
             stringResource(R.string.inspector_style_text),
-            style.text
+            style.text ?: stringResource(R.string.inspector_value_unavailable)
         )
-        style.textColor?.let { textColor ->
+        InfoRow(
+            stringResource(R.string.inspector_style_text_color),
+            style.textColor?.toHexTextColor() ?: stringResource(R.string.inspector_value_unavailable),
+            previewColor = style.textColor,
+        )
+        if (selectionState.properties.type == UiNodeType.COMPOSE) {
             InfoRow(
-                stringResource(R.string.inspector_style_text_color),
-                "#${textColor.toHexString()}"
+                stringResource(R.string.inspector_style_text_size),
+                style.textSizeSp?.let { "${it.toDisplayString()}sp" }
+                    ?: stringResource(R.string.inspector_value_unavailable),
             )
-        }
-        style.textSize?.let { textSize ->
+        } else if (style.textSize != null) {
+            val textSize = style.textSize
             val sizeInPx = textSize.toDisplayString()
             val sizeInDp = textSize.toSizeInDp().toDisplayString()
             val sizeInSp = textSize.toSizeInSp().toDisplayString()
@@ -491,18 +480,23 @@ private fun TextContent(
                 "${sizeInSp}sp, ${sizeInDp}dp, ${sizeInPx}px"
             )
         }
-        if (style.isBold || style.isItalic) {
-            val bold = stringResource(R.string.inspector_style_bold)
-            val italic = stringResource(R.string.inspector_style_italic)
-            val typefaceStyles = buildList {
-                if (style.isBold) add(bold)
-                if (style.isItalic) add(italic)
-            }
-            InfoRow(
-                stringResource(R.string.inspector_style_text_style),
-                typefaceStyles.joinToString(", ")
-            )
-        }
+        InfoRow(
+            stringResource(R.string.inspector_style_font_weight),
+            style.fontWeight?.toString() ?: when (style.isBold) {
+                true -> stringResource(R.string.inspector_style_bold)
+                false -> stringResource(R.string.inspector_style_normal)
+                null -> stringResource(R.string.inspector_value_unavailable)
+            },
+        )
+        InfoRow(
+            stringResource(R.string.inspector_style_italic),
+            when (style.isItalic) {
+                true -> stringResource(R.string.inspector_value_true)
+                false -> stringResource(R.string.inspector_value_false)
+                null -> stringResource(R.string.inspector_value_unavailable)
+            },
+        )
+        ExtendedTextProperties(style)
     }
 }
 

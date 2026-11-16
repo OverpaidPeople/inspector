@@ -3,10 +3,12 @@ package com.uhufor.inspector.config
 import com.uhufor.inspector.RelativeGuideStyle
 import com.uhufor.inspector.TraverseType
 import com.uhufor.inspector.UnitMode
+import com.uhufor.inspector.engine.TextGuideOptions
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 internal class Config {
+    var textGuides = TextGuideOptions()
     private val _unitModeFlow = MutableStateFlow<UnitMode>(UnitMode.DP)
     val unitModeFlow = _unitModeFlow.asStateFlow()
     var unitMode: UnitMode

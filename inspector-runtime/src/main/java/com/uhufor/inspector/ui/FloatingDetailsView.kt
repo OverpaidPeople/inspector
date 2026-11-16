@@ -28,6 +28,7 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.uhufor.inspector.UnitMode
 import com.uhufor.inspector.engine.SelectionState
+import com.uhufor.inspector.engine.TextGuideOptions
 import com.uhufor.inspector.engine.ViewMutator
 import com.uhufor.inspector.ui.compose.LocalDetailsViewUiScale
 import com.uhufor.inspector.util.dp
@@ -60,6 +61,8 @@ internal class FloatingDetailsView(
         get() = lifecycleRegistry
 
     private var selectionStateState by mutableStateOf<SelectionState?>(null)
+    var textGuideOptions by mutableStateOf(TextGuideOptions())
+    var onTextGuideOptionsChange: ((TextGuideOptions) -> Unit)? = null
     private var unitModeState by mutableStateOf(UnitMode.DP)
     private var uiScaleState by mutableFloatStateOf(1f)
     private var cancelEdit: (() -> Boolean)? = null
@@ -131,6 +134,8 @@ internal class FloatingDetailsView(
                             ViewMutator.setPaddingById(selectionState.id, pl, pt, pr, pb)
                             ViewMutator.runAfterNextLayout(selectionState.id) { onRefresh?.invoke() }
                         },
+                        textGuideOptions = textGuideOptions,
+                        onTextGuideOptionsChange = { onTextGuideOptionsChange?.invoke(it) },
                         onApplyText = { text, size, color ->
                             ViewMutator.setTextById(selectionState.id, text)
                             if (size != null) {

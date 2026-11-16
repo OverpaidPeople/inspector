@@ -3,6 +3,10 @@
     <string name="main_title">Android UI Inspection Sample</string>
     <string name="btn_xml_ui">XML UI</string>
     <string name="btn_compose_ui">Compose UI</string>
+    <string name="compose_background_samples_title">Background color samples</string>
+    <string name="compose_background_solid_text">Solid Text · BG #FF1565C0\nRadius 8dp · Border 2dp · Alpha 90%</string>
+    <string name="compose_background_alpha_text">Alpha Text · BG #80FF9800</string>
+    <string name="compose_background_box">Box · BG #FF2E7D32\nSelect the green square</string>
     <string name="btn_mixed_a">Mixed A</string>
     <string name="btn_mixed_b">Mixed B</string>
     <string name="btn_mixed_c">Mixed C</string>

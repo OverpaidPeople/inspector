@@ -6,6 +6,7 @@ import android.graphics.Rect
 import android.view.Gravity
 import android.view.WindowManager
 import androidx.annotation.MainThread
+import androidx.compose.ui.platform.isDebugInspectorInfoEnabled
 import androidx.core.content.getSystemService
 import com.uhufor.inspector.config.Config
 import com.uhufor.inspector.config.ConfigProvider
@@ -64,6 +65,8 @@ object Inspector {
 
     @MainThread
     fun install(context: Context) {
+        // Must precede composition: background() captures this flag when its element is created.
+        isDebugInspectorInfoEnabled = true
         if (installed) return
         applicationContext = context.applicationContext
 
@@ -186,6 +189,12 @@ object Inspector {
                 isNeedToBringToFront = true
             }
             floatingDetailsView?.setOnRefresh { refresh() }
+            floatingDetailsView?.textGuideOptions = config.textGuides
+            floatingDetailsView?.onTextGuideOptionsChange = { options ->
+                config.textGuides = options
+                floatingDetailsView?.textGuideOptions = options
+                overlayCanvas?.invalidate()
+            }
             floatingDetailsView?.install(
                 selectionState = selectionState,
                 unitMode = unitMode,

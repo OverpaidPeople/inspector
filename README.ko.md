@@ -47,7 +47,7 @@
 fun Profile(profile: Profile, modifier: Modifier) {
   Box(
     modifier = Modifier
-      .clearAndSetSemantics {} // 또는 .semantics {}
+      .semantics {} // 컨테이너 자체 선택이 필요할 때만 추가
       .size(100.dp)
   ) {
       Image(
@@ -204,6 +204,76 @@ class InspectorActivity : Activity() {
 ```
 
 ---
+
+## Compose 스타일 검사
+
+앱의 각 `Text`나 컴포넌트를 수정할 필요 없이, 기존 상세 패널에서 다음 정보를 확인할 수 있습니다.
+
+- 실제 텍스트 내용 (`[AnnotatedString(...)]` 형식이 아닌 문자열)
+- 글자 색상과 배경색: `#AARRGGBB` 및 투명도를 구분하는 체크무늬 색상 미리보기
+- 글자 크기: Compose 원본 `sp` 값 (화면 측정의 DP/PX 설정과 무관)
+- 글자 굵기: 읽을 수 있는 경우 숫자 값, 이탤릭 여부
+
+기존 설정에 추가 API나 전용 Modifier는 필요하지 않습니다. **첫 Compose 화면이 생성되기 전에** `Application.onCreate()`에서 설치하세요.
+
+```kotlin
+override fun onCreate() {
+    super.onCreate()
+    Inspector.install(this)
+}
+// 검사 중 상세 패널 표시
+Inspector.enableDetailsView()
+```
+
+runtime의 `install()`은 Compose의 전역 `isDebugInspectorInfoEnabled`를 켭니다. 이는 이후 생성되는 Modifier의 검사 메타데이터를 보존하며 검사 종료 시에도 유지됩니다. 개별 컴포넌트 변경 없이 `Modifier.background`의 색상/브러시를 구분하기 위한 설정입니다. 이미 생성된 Modifier에는 소급 적용되지 않으므로, 늦게 설치했다면 화면을 다시 생성해야 배경 정보를 얻을 수 있습니다. 메타데이터 보존 비용은 debug runtime에만 발생하며 release의 `inspector-noop`에는 적용되지 않습니다.
+
+### 지원 범위와 확인 불가
+
+- 현재 BOM `2024.08.00`이 해석하는 Compose UI/Foundation **1.6.8**을 기준으로 구현했습니다. 텍스트는 선택한 unmerged Semantics 노드의 `SemanticsActions.GetTextLayoutResult`에서 읽고, 실패/미제공 시 Semantics의 `Text` 또는 `EditableText` 내용만 사용합니다. 실패하는 콜백은 검사를 중단시키지 않습니다. 비밀번호 노드는 원문과 스타일을 조회하지 않습니다.
+- 배경은 `layoutInfo.getModifierInfo()`와 `InspectableValue`로 **선택한 노드 자체의 단일 `Modifier.background`**를 읽습니다. 이 버전에 없는 새 배경 Semantics API나 Compose 비공개 필드 reflection에 의존하지 않습니다. 다른 Compose 버전의 호환성을 보장하지 않으며, 검사 메타데이터를 읽지 못하면 확인 불가로 표시합니다.
+- 부모 배경을 자식의 배경으로 간주하지 않습니다. 표시하는 색상은 선언된 배경 페인트이며, 부모/창 배경과 합성된 최종 화면 픽셀이나 graphicsLayer의 최종 알파가 아닙니다. 모서리가 있는 배경도 페인트 색상을 표시합니다.
+- 그라데이션/ShaderBrush, 여러 background, 이미지 `paint`, 표준 커스텀 draw Modifier, Surface의 내부 드로잉, Canvas 등에서 단색을 확정할 수 없으면 **확인 불가**로 표시합니다. `SolidColor` 브러시는 명시된 alpha를 적용합니다. 일반 커스텀 Modifier의 드로잉 동작은 알아낼 수 없으므로 이 도구를 픽셀 분석기로 사용하지 마세요.
+- AnnotatedString의 겹친 SpanStyle을 병합한 뒤, 색상·크기·굵기·이탤릭 각각이 전체 텍스트에서 동일할 때만 값을 표시합니다. 혼합된 항목, 미지정 값, 글자 크기의 `em` 값은 확인 불가입니다. 줄 높이·자간의 `em`은 원본 단위로 표시합니다. 글꼴의 실제 렌더링 결과/합성 굵기가 아닌 레이아웃에 제공된 스타일 값입니다.
+- 기존 Semantics 기반 선택 범위는 유지됩니다. Semantics가 없는 순수 Box/Canvas는 새로 선택 대상이 되지 않습니다. 그런 컨테이너 자체를 선택해야 할 때만 해당 컨테이너에 `Modifier.semantics { }`를 추가할 수 있습니다. 표준 Text/TextField에는 필요하지 않습니다. `clearAndSetSemantics`로 숨긴 내부 스타일은 복구하지 않습니다.
+- 기존 크기·부모와의 거리·마진·패딩·요소 간 거리 기능 및 XML/View 텍스트 편집을 유지합니다. Compose 스타일 표시는 읽기 전용입니다. XML/View 배경도 그라데이션과 ripple 효과색을 단색 배경으로 오인하지 않도록 처리합니다.
+
+의존성 구성은 그대로 유지하세요.
+
+```kotlin
+debugImplementation(project(":inspector-runtime"))
+releaseImplementation(project(":inspector-noop"))
+```
+
+테스트: `:inspector-runtime:testDebugUnitTest`, `:inspector-runtime:connectedDebugAndroidTest`. 계측 테스트에는 Android API 28 이상 기기/에뮬레이터가 필요합니다.
+
+### 앱에서 바로 확인하는 디자인 속성
+
+별도 디자인 파일이나 폰트 파일을 가져올 필요 없이, 기존 PROP 상세 패널을 스크롤해 다음 정보를 확인합니다.
+
+- **Text**: 기존 글자색·크기·굵기에 폰트 family, 줄 높이, 자간, 텍스트 정렬, font padding 여부를 추가했습니다. Compose 줄 높이·자간은 원본 `sp`/`em`을 유지합니다. View 줄 높이는 런타임 측정 `px`, 자간은 `em`입니다. 미지정 값이나 혼합된 값은 확인 불가입니다.
+- **Appearance**: 모서리 반경, 테두리 두께·색상 및 미리보기, 로컬 레이어 alpha를 표시합니다. 모서리는 Shape의 실제 크기와 LTR/RTL 방향을 반영한 TL/TR/BR/BL 순서입니다. 반경은 DP/PX 설정에 따르고, 테두리는 선언된 dp를 표시합니다. `0.dp` 테두리는 `Hairline (1px)`로 구분합니다.
+- **Alignment**: 텍스트 레이아웃 너비·높이·줄 수와 첫 줄/마지막 줄 baseline을 표시합니다. Baseline 수치는 **텍스트 레이아웃의 맨 위**에서 측정한 거리입니다. `Baseline guide`를 켜면 자홍색 선, `Text bounds guide`를 켜면 노란색 경계를 그립니다. 가이드는 기본 Off이며 선택 요소를 바꿔도 설정을 유지합니다. 레이아웃을 읽지 못하면 토글도 사용할 수 없습니다.
+- Compose 패딩·마진은 현재 자동 추출하지 못하므로 0 대신 **확인 불가**로 표시합니다. 실제 부모/요소 간 거리 측정은 그대로 사용할 수 있습니다.
+
+지원 한계:
+
+- 폰트 family는 레이아웃에 지정된 시스템 family나 앱에 포함된 font 리소스 이름입니다. 실제 glyph별 fallback 폰트 이름을 추측하지 않습니다. View Typeface의 family 이름, 동적/로딩 폰트 이름은 확인 불가일 수 있습니다.
+- 레이어 alpha는 읽을 수 있는 **선택 노드의 명시적 graphicsLayer** 값들의 곱입니다. 부모 alpha, 배경색 자체의 alpha, 최종 합성 픽셀과 구분합니다. 레이어가 없거나 `graphicsLayer { ... }` 콜백에 값이 숨겨져 있으면 확인 불가입니다. 앱의 콜백은 검사 목적으로 실행하지 않습니다.
+- 복수 테두리의 너비·색상, 그라데이션 테두리의 단일 색상, 서로 다른 Shape가 겹친 경우의 단일 반경, 일반 Path/비대칭 타원 반경은 확인 불가입니다. View에서는 공개 API로 읽을 수 있는 배경 모서리와 view alpha를 표시하며, drawable 테두리는 확인 불가입니다.
+- 노란 경계는 **텍스트 레이아웃 영역**이며 글자의 실제 잉크 픽셀 윤곽은 아닙니다. Compose 1.6.8에서 공개된 첫 줄/마지막 줄 baseline만 표시하고 중간 줄을 보간하지 않습니다. 장식 컨테이너와 내부 텍스트 크기가 다른 입력창은 텍스트 원점을 확정할 수 없어 가이드를 표시하지 않습니다. View 가이드는 변환되지 않은 일반 TextView에서 지원하며, 회전/크기 변환이 있으면 좌표를 추측하지 않습니다.
+- 검사 정보는 선택/스캔 시점의 값입니다. 화면이나 상태가 바뀌었다면 새로 선택하거나 새로고침해 확인하세요.
+
+샘플 앱에서 **Compose UI → Background color samples**의 파란 텍스트를 선택하면 `16sp`, `24sp` 줄 높이, `0.5sp` 자간, `sans-serif`, Center 정렬, `8dp` 모서리, `2dp / #FF0D47A1` 테두리, `90%` 레이어 alpha를 비교할 수 있습니다. 가이드 토글은 Alignment 아래에 있습니다.
+
+### 이번 변경의 검증 결과
+
+- 단위 테스트 **22개 통과**: 실제 Compose background/border/layer Modifier, 단색/그라데이션/겹친 배경/alpha, 검사 정보 미제공, 혼합·겹친 span/paragraph, 원본 줄 높이·자간 단위, 콜백 미실행 및 가이드 좌표 매핑.
+- 계측 테스트 **13개 모두 실행 통과** (`:inspector-runtime:connectedDebugAndroidTest`, Pixel 9 Pro / Android 16 에뮬레이터): 실제 Text/TextField 속성, 실패하는 Semantics 액션, 비밀번호, 복수 레이아웃, 확인 불가 표시, 패딩이 있는 텍스트의 가이드 원점, 장식 입력창의 미확인 좌표 처리, LTR/RTL 모서리, 토글 및 실제 가이드 픽셀 렌더링, hit/scan 크기 유지, View 회귀 검증. 같은 면적에서는 더 깊은 자식 노드를 우선해 부모가 텍스트를 가리지 않도록 처리했습니다.
+- `:app:assembleDebug`, `:app:assembleRelease`, `:inspector-runtime:assembleRelease`, `:inspector-noop:assembleRelease` 통과.
+- `:inspector-runtime:lintDebug` 통과: 오류 0개, 기존 `ic_compose.xml`의 긴 벡터 경로 경고 1개.
+- APK DEX 확인: debug에는 `ComposeStyleExtractor`, `ComposeAppearanceExtractor`, `TextGuideOptions`가 있고 release에는 없습니다. 샘플의 기존 runtime 아이콘 참조 두 곳은 샘플 소유 리소스로 옮겨 no-op release 빌드 오류를 수정했습니다. 최종 debug 앱을 에뮬레이터에 설치했습니다.
+
+추출 API 근거: [GetTextLayoutResult](https://developer.android.com/reference/kotlin/androidx/compose/ui/semantics/SemanticsActions), [LayoutInfo.getModifierInfo](https://developer.android.com/reference/kotlin/androidx/compose/ui/layout/LayoutInfo). 사용 버전의 Background 구현은 로컬에 해석된 Foundation 1.6.8 source JAR에서도 확인했습니다.
 
 ## 라이선스
 

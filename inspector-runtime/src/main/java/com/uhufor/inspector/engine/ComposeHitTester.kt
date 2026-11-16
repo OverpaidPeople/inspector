@@ -25,6 +25,7 @@ internal object ComposeHitTester {
 
         var matched: SelectionState? = null
         var smallestArea = INVALID_AREA
+        var matchedDepth = -1
 
         composeViews
             .mapNotNull { composeView ->
@@ -40,7 +41,10 @@ internal object ComposeHitTester {
                             val hitPosition = Offset(x.toFloat(), y.toFloat())
                             if (bounds.contains(hitPosition)) {
                                 val area = (bounds.width * bounds.height).toInt()
-                                if (area < smallestArea) {
+                                val depth = node.getDepth()
+                                // A Compose root and its Text can have identical bounds.
+                                // Prefer the descendant so the root cannot hide its text styles.
+                                if (area < smallestArea || (area == smallestArea && depth > matchedDepth)) {
                                     matched = SelectionState(
                                         id = node.getNestedBoundsHash(),
                                         bounds = RectF(
@@ -52,9 +56,10 @@ internal object ComposeHitTester {
                                         parentBounds = node.parent?.boundsInWindow?.run {
                                             RectF(left, top, right, bottom)
                                         },
-                                        properties = node.getUiNodeProperties()
+                                        properties = node.getUiNodeProperties(root.resources)
                                     )
                                     smallestArea = area
+                                    matchedDepth = depth
                                 }
                             }
                         }
@@ -94,7 +99,7 @@ internal object ComposeHitTester {
                             parentBounds = node.parent?.boundsInWindow?.run {
                                 RectF(left, top, right, bottom)
                             },
-                            properties = node.getUiNodeProperties()
+                            properties = node.getUiNodeProperties(root.resources)
                         )
                     }
             }
@@ -122,7 +127,17 @@ internal object ComposeHitTester {
         return hash
     }
 
-    private fun SemanticsNode.getUiNodeProperties(): UiNodeProperties =
+    private fun SemanticsNode.getDepth(): Int {
+        var depth = 0
+        var ancestor = parent
+        while (ancestor != null) {
+            depth++
+            ancestor = ancestor.parent
+        }
+        return depth
+    }
+
+    private fun SemanticsNode.getUiNodeProperties(resources: android.content.res.Resources): UiNodeProperties =
         UiNodeProperties(
             type = UiNodeType.COMPOSE,
             id = id.toString(),
@@ -147,19 +162,7 @@ internal object ComposeHitTester {
                     add(UiNodeActionProperties.SELECTABLE)
                 }
             },
-            styles = buildSet {
-                if (config.getOrNull(SemanticsProperties.Text) != null) {
-                    add(
-                        UiNodeStyleProperties.TextStyle(
-                            text = config.getOrNull(SemanticsProperties.Text).toString(),
-                            textColor = null,
-                            textSize = null,
-                            isBold = false,
-                            isItalic = false,
-                        )
-                    )
-                }
-            }
+            styles = ComposeStyleExtractor.extract(this, resources)
         )
 
     private fun SemanticsNode.getDistanceFromParent(): RectF {

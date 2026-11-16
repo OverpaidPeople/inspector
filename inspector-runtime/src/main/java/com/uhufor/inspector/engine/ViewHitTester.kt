@@ -5,7 +5,6 @@ import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
-import android.os.Build
 import android.util.Size
 import android.view.View
 import android.view.ViewGroup
@@ -130,16 +129,9 @@ internal object ViewHitTester {
                 },
                 styles = buildSet {
                     if (view is TextView) {
-                        add(
-                            UiNodeStyleProperties.TextStyle(
-                                text = view.text.toString(),
-                                textColor = view.currentTextColor,
-                                textSize = view.textSize,
-                                isBold = view.typeface?.isBold ?: false,
-                                isItalic = view.typeface?.isItalic ?: false,
-                            )
-                        )
+                        add(ViewStyleExtractor.textStyle(view))
                     }
+                    add(ViewStyleExtractor.appearance(view))
                     add(
                         UiNodeStyleProperties.ColorStyle(
                             backgroundType = view.background?.javaClass?.simpleName ?: "None",
@@ -149,15 +141,16 @@ internal object ViewHitTester {
                                 }
 
                                 is RippleDrawable -> {
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                        drawable.effectColor.defaultColor
-                                    } else {
-                                        null
-                                    }
+                                    // Ripple effect color is not the drawable's background paint.
+                                    null
                                 }
 
                                 is GradientDrawable -> {
-                                    drawable.color?.defaultColor
+                                    if (drawable.colors?.isEmpty() != false) {
+                                        drawable.color?.let { colors ->
+                                            colors.getColorForState(view.drawableState, colors.defaultColor)
+                                        }
+                                    } else null
                                 }
 
                                 else -> {

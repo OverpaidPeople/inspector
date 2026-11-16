@@ -24,19 +24,55 @@ internal enum class UiNodeActionProperties(val value: String) {
 }
 
 internal sealed interface UiNodeStyleProperties {
+    data class AppearanceStyle(
+        // Physical corner order: top-left, top-right, bottom-right, bottom-left.
+        val cornerRadiiPx: List<Float>? = null,
+        val borderWidthDp: Float? = null,
+        val borderColor: Int? = null,
+        // Product of readable local graphics layers, excluding ancestors and fill alpha.
+        val layerAlpha: Float? = null,
+    ) : UiNodeStyleProperties
+
     data class ColorStyle(
         val backgroundType: String?,
         val backgroundColor: Int?,
     ) : UiNodeStyleProperties
 
     data class TextStyle(
-        val text: String,
+        val text: String?,
         val textColor: Int?,
         val textSize: Float?,
-        val isBold: Boolean,
-        val isItalic: Boolean,
+        val isBold: Boolean?,
+        val isItalic: Boolean?,
+        // View textSize remains pixels for the existing editor; Compose preserves source sp.
+        val textSizeSp: Float? = null,
+        val fontWeight: Int? = null,
+        val fontFamily: String? = null,
+        val lineHeight: StyleTextUnit? = null,
+        val lineHeightPx: Float? = null,
+        val letterSpacing: StyleTextUnit? = null,
+        val textAlign: String? = null,
+        val includeFontPadding: Boolean? = null,
+        val layout: TextLayoutInfo? = null,
     ) : UiNodeStyleProperties
 }
+
+internal data class StyleTextUnit(val value: Float, val unit: String)
+
+internal data class GuideLine(val startX: Float, val startY: Float, val endX: Float, val endY: Float)
+
+internal data class TextLayoutInfo(
+    val widthPx: Float,
+    val heightPx: Float,
+    val lineCount: Int,
+    val firstBaselinePx: Float,
+    val lastBaselinePx: Float,
+    // Coordinates are in window space for Compose, screen space for Views (like selections).
+    val outline: List<GuideLine>,
+    val baselines: List<GuideLine>,
+)
+
+internal data class TextGuideOptions(val baselines: Boolean = false, val bounds: Boolean = false)
 
 internal data class UiNodeProperties(
     val type: UiNodeType,

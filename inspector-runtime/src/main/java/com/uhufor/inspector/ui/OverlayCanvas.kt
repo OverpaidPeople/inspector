@@ -26,6 +26,8 @@ import com.uhufor.inspector.engine.Edge
 import com.uhufor.inspector.engine.InspectorEngine
 import com.uhufor.inspector.engine.MeasurementMode
 import com.uhufor.inspector.engine.SelectionState
+import com.uhufor.inspector.engine.UiNodeStyleProperties
+import com.uhufor.inspector.engine.TextGuideOptions
 import com.uhufor.inspector.util.SwipeGestureDetector
 import com.uhufor.inspector.util.UnitConverter
 import com.uhufor.inspector.util.dp
@@ -191,6 +193,38 @@ internal class OverlayCanvas @JvmOverloads constructor(
                 MeasurementMode.Relative -> drawRelativeMeasurement(canvas)
                 else -> Unit
             }
+            when (internalEngine?.measurementMode) {
+                MeasurementMode.Normal -> internalEngine?.selection?.let { drawTextGuides(canvas, it) }
+                MeasurementMode.Relative -> {
+                    internalEngine?.primarySelection?.let { drawTextGuides(canvas, it) }
+                    internalEngine?.secondarySelection?.let { drawTextGuides(canvas, it) }
+                }
+                else -> Unit
+            }
+        }
+    }
+
+    private val textGuidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.dp()
+    }
+
+    internal fun drawTextGuides(canvas: Canvas, selection: SelectionState, options: TextGuideOptions = cfg.textGuides) {
+        val layout = selection.properties.styles.filterIsInstance<UiNodeStyleProperties.TextStyle>()
+            .firstOrNull()?.layout ?: return
+        val saved = canvas.save()
+        try {
+            canvas.clipRect(selection.bounds)
+            if (options.bounds) {
+                textGuidePaint.color = Color.YELLOW
+                layout.outline.forEach { canvas.drawLine(it.startX, it.startY, it.endX, it.endY, textGuidePaint) }
+            }
+            if (options.baselines) {
+                textGuidePaint.color = Color.MAGENTA
+                layout.baselines.forEach { canvas.drawLine(it.startX, it.startY, it.endX, it.endY, textGuidePaint) }
+            }
+        } finally {
+            canvas.restoreToCount(saved)
         }
     }
 
